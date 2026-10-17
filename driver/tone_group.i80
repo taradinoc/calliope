@@ -1,0 +1,85 @@
+; Relocatable tone-only groups: choose all resources before ownership changes.
+tone_group_choose:
+        LD A,(PCMDESC+7)
+        LD B,A
+        LD D,0
+        LD C,2
+tone_group_pass:
+        LD E,1
+        LD HL,OWNERS+5
+tone_group_scan:
+        LD A,D
+        AND E
+        JR NZ,tone_group_next
+        LD A,(HL)
+        OR A
+        JR Z,tone_group_take
+        BIT 0,C
+        JR Z,tone_group_next
+        PUSH HL
+        CALL fm_instance
+        POP HL
+        LD A,(TEMP+7)
+        CP (IX+2)
+        JR C,tone_group_next
+        JR Z,tone_group_next
+tone_group_take:
+        LD A,D
+        OR E
+        LD D,A
+        DEC B
+        JR Z,tone_group_ready
+tone_group_next:
+        SLA E
+        INC HL
+        BIT 3,E
+        JR Z,tone_group_scan
+        DEC C
+        JR NZ,tone_group_pass
+        RET
+tone_group_ready:
+        LD A,D
+        JP noise_mask_ready
+; Each stream uses logical tone latches 0..count-1 in ascending voice order.
+psg_group_write:
+        LD A,E
+        BIT 7,A
+        JP Z,psg_output
+        LD BC,14
+        ADD HL,BC
+        LD D,(HL)
+        RLCA
+        RLCA
+        RLCA
+        AND 3
+        LD B,A
+        INC B
+        LD C,0
+psg_group_channel:
+        SRL D
+        JR NC,psg_group_next
+        DJNZ psg_group_next
+        LD A,C
+        RRCA
+        RRCA
+        RRCA
+        LD D,A
+        LD A,E
+        AND $9F
+        OR D
+        JP psg_output
+psg_group_next:
+        INC C
+        JR psg_group_channel
+lfo_op:
+        CALL fetch
+        LD E,A
+        LD D,$22
+        LD C,0
+        CALL ym
+        JP decode
+pcm_off_op:
+        CALL part_blocked
+        JP NZ,decode
+        CALL pcm_cancel_music
+        JP music_sync_begin

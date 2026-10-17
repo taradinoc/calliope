@@ -1,0 +1,604 @@
+; Four FM/PSG SFX contexts. Streams use the normal semantic decoder.
+; State: active, physical channel, priority, age rank, token16, stream24, wait.
+TARGET  EQU $1EDD
+BESTPRI EQU $1EDE
+BESTAGE EQU $1EDF
+FREEINST EQU $1EBE ; two bytes; must end before PCMSFX at $1EC0
+        IF FREEINST+2 > PCMSFX
+        ERROR "SFX allocation pointer overlaps PCM ownership"
+        ENDIF
+STEALORDER EQU $1F6B
+music_blocked:
+        LD A,(CONTEXT)
+        OR A
+        JP Z,music_owner_check
+        XOR A
+        RET
+music_single_check:
+        PUSH HL
+        LD A,C
+        OR $20
+        LD L,A
+        LD H,$1F
+        LD A,(HL)
+        OR A
+        JR NZ,music_blocked_done
+        LD A,C
+        CP 8
+        JR Z,music_high_mute
+        LD HL,mute_bits
+        LD A,L
+        ADD A,C
+        LD L,A
+        JR NC,music_mute_index
+        INC H
+music_mute_index:
+        LD A,(MUTEMASK)
+        AND (HL)
+music_blocked_done:
+        POP HL
+        RET
+music_high_mute:
+        LD A,(MUTEMASK+1)
+        AND 1
+        JR music_blocked_done
+fetch_slot:
+fetch_music_slot:
+        LD C,0
+        LD A,(CONTEXT)
+        OR A
+        RET Z
+        CALL fetch
+        LD C,A
+        LD HL,(CURSFX)
+        LD A,L
+        ADD A,10
+        LD L,A
+        LD A,(HL)
+        CP 8
+        RET Z
+        LD HL,(CURSFX)
+        INC HL
+        LD C,(HL)
+        RET
+; A=one-based instance -> IX. Preserves BC/DE.
+fm_owner_number:
+        LD A,IXL
+        RRCA
+        RRCA
+        RRCA
+        RRCA
+        AND 3
+        INC A
+        LD B,A
+        RET
+fm_instance:
+        DEC A
+        ADD A,A
+        ADD A,A
+        ADD A,A
+        ADD A,A
+        LD L,A
+        LD H,$18
+        PUSH HL
+        POP IX
+        RET
+fm_sfx_start:
+        CALL cache_patches
+        LD HL,TEMP+4
+        CALL relative
+        LD HL,PCMDESC
+        LD B,11
+fm_desc_read:
+        CALL read
+        LD (HL),A
+        INC HL
+        CALL music_yield
+        DJNZ fm_desc_read
+        LD A,(PCMDESC+2)
+        CP 4
+        JP NC,noise_allocate
+        LD IX,$1800
+        LD B,4
+fm_find_instance:
+        LD A,(IX+0)
+        OR A
+        JR Z,fm_free_instance
+        LD DE,16
+        ADD IX,DE
+        DJNZ fm_find_instance
+        JR fm_find_victim
+fm_free_instance:
+        LD (FREEINST),IX
+        LD A,255
+        LD (TARGET),A
+        LD B,A
+        LD A,(MUSICMASK)
+        LD D,A
+        LD A,(PCMDESC+7)
+        LD E,A
+        LD HL,OWNERS
+        LD C,0
+fm_free_channel:
+        SRL E
+        JR NC,fm_free_next
+        LD A,(HL)
+        OR A
+        JR NZ,fm_free_next
+        BIT 0,D
+        JR Z,fm_take_free
+        ; Compare this song's per-type physical-channel steal ranks.
+        PUSH HL
+        PUSH DE
+        LD HL,STEALORDER
+        LD E,C
+        LD D,0
+        ADD HL,DE
+        LD A,(HL)
+        POP DE
+        POP HL
+        CP B
+        JR NC,fm_free_next
+        LD B,A
+        LD A,C
+        LD (TARGET),A
+fm_free_next:
+        SRL D
+        INC HL
+        INC C
+        LD A,C
+        CP 8
+        JR C,fm_free_channel
+        LD A,(TARGET)
+        CP 255
+        JR Z,fm_find_victim
+        LD C,A
+fm_take_free:
+        LD IX,(FREEINST)
+        JR fm_acquire
+fm_find_victim:
+        LD A,255
+        LD (TARGET),A
+        LD A,(TEMP+7)
+        LD (BESTPRI),A
+        XOR A
+        LD (BESTAGE),A
+        LD A,(PCMDESC+7)
+        LD E,A
+        LD C,0
+fm_victim_loop:
+        SRL E
+        JR NC,fm_victim_next
+        LD HL,OWNERS
+        LD B,0
+        ADD HL,BC
+        LD A,(HL)
+        OR A
+        JR Z,fm_victim_next
+        CALL fm_instance
+        LD A,(TEMP+7)
+        CP (IX+2)
+        JR C,fm_victim_next
+        JR Z,fm_victim_next
+        LD A,(BESTPRI)
+        CP (IX+2)
+        JR C,fm_victim_next
+        JR NZ,fm_victim_choose
+        LD A,(BESTAGE)
+        CP (IX+3)
+        JR NC,fm_victim_next
+fm_victim_choose:
+        LD A,(IX+2)
+        LD (BESTPRI),A
+        LD A,(IX+3)
+        LD (BESTAGE),A
+        LD A,C
+        LD (TARGET),A
+fm_victim_next:
+        INC C
+        LD A,C
+        CP 8
+        JR C,fm_victim_loop
+        LD A,(TARGET)
+        CP 255
+        RET Z
+        LD C,A
+        LD HL,OWNERS
+        LD B,0
+        ADD HL,BC
+        LD A,(HL)
+        CALL fm_instance
+        CALL fm_release
+        LD A,(TARGET)
+        LD C,A
+fm_acquire:
+        LD A,(PCMDESC+2)
+        LD (IX+10),A
+        LD (IX+1),C
+        LD (CURSFX),IX
+        LD A,C
+        LD (CH),A
+        CALL keyoff
+        ; Active ranks form a permutation 0..count-1, so age never wraps.
+        PUSH IX
+        LD IX,$1800
+        LD B,4
+fm_age_existing:
+        LD A,(IX+0)
+        OR A
+        JR Z,fm_age_next
+        INC (IX+3)
+fm_age_next:
+        LD DE,16
+        ADD IX,DE
+        DJNZ fm_age_existing
+        POP IX
+        LD (IX+0),1
+        LD (IX+3),0
+        LD (IX+9),0
+        LD A,(TEMP+7)
+        LD (IX+2),A
+        LD HL,(TEMP+2)
+        LD (IX+4),L
+        LD (IX+5),H
+        LD HL,PCMDESC+4
+        CALL relative
+        LD HL,(RPTR)
+        LD (IX+6),L
+        LD (IX+7),H
+        LD A,(RPTR+2)
+        LD (IX+8),A
+        CALL fm_owner_number
+        LD HL,OWNERS
+        LD E,(IX+1)
+        LD D,0
+        ADD HL,DE
+        LD (HL),B
+        LD HL,DIRTY
+        ADD HL,DE
+        LD (HL),1
+        JP sfx_loop_init
+fm_sfx_tick:
+        LD HL,(SEQ)
+        PUSH HL
+        LD A,(SEQ+2)
+        PUSH AF
+        LD A,(WAIT)
+        PUSH AF
+        LD IX,$1800
+        LD B,4
+fm_tick_loop:
+        RST $08
+        LD A,(IX+0)
+        OR A
+        JR Z,fm_tick_next
+        PUSH BC
+        PUSH IX
+        LD (CURSFX),IX
+        XOR A
+        LD (SEQVALID),A
+        LD A,1
+        LD (CONTEXT),A
+        LD L,(IX+6)
+        LD H,(IX+7)
+        LD (SEQ),HL
+        LD A,(IX+8)
+        LD (SEQ+2),A
+        LD A,(IX+9)
+        LD (WAIT),A
+        CALL tick_wait
+        POP IX
+        LD HL,(SEQ)
+        LD (IX+6),L
+        LD (IX+7),H
+        LD A,(SEQ+2)
+        LD (IX+8),A
+        LD A,(WAIT)
+        LD (IX+9),A
+        POP BC
+fm_tick_next:
+        LD DE,16
+        ADD IX,DE
+        DJNZ fm_tick_loop
+        LD A,(CONTEXT)
+        OR A
+        JR Z,fm_no_cache_change
+        XOR A
+        LD (SEQVALID),A
+fm_no_cache_change:
+        XOR A
+        LD (CONTEXT),A
+        POP AF
+        LD (WAIT),A
+        POP AF
+        LD (SEQ+2),A
+        POP HL
+        LD (SEQ),HL
+        RST $08
+        RET
+fm_sfx_end:
+        LD IX,(CURSFX)
+        JP sfx_loop_end
+fm_release:
+        ; Scan owners so every resource of an instance is released together.
+        CALL fm_owner_number
+        LD C,0
+        LD HL,OWNERS
+fm_release_owned:
+        LD A,(HL)
+        CP B
+        JR NZ,fm_release_next
+        PUSH HL
+        CALL keyoff
+        POP HL
+        LD (HL),0
+fm_release_next:
+        INC HL
+        INC C
+        LD A,C
+        CP 9
+        JR C,fm_release_owned
+        LD (IX+0),0
+        LD A,(IX+3)
+        PUSH IX
+        LD IX,$1800
+        LD B,4
+fm_compact_age:
+        LD E,A
+        LD A,(IX+0)
+        OR A
+        LD A,E
+        JR Z,fm_compact_next
+        CP (IX+3)
+        JR NC,fm_compact_next
+        DEC (IX+3)
+fm_compact_next:
+        LD DE,16
+        ADD IX,DE
+        DJNZ fm_compact_age
+        POP IX
+        RET
+stop_token:
+        CALL pcm_stop_token
+        LD IX,$1800
+        LD B,4
+fm_stop_loop:
+        LD A,(IX+0)
+        OR A
+        JR Z,fm_stop_next
+        LD A,(TEMP+4)
+        CP (IX+4)
+        JR NZ,fm_stop_next
+        LD A,(TEMP+5)
+        CP (IX+5)
+        JR NZ,fm_stop_next
+        PUSH BC
+        CALL fm_release
+        POP BC
+fm_stop_next:
+        LD DE,16
+        ADD IX,DE
+        DJNZ fm_stop_loop
+        RET
+fm_sfx_stop_all:
+        LD IX,$1800
+        LD B,4
+fm_stop_all_loop:
+        LD A,(IX+0)
+        OR A
+        JR Z,fm_stop_all_next
+        PUSH BC
+        CALL fm_release
+        POP BC
+fm_stop_all_next:
+        LD DE,16
+        ADD IX,DE
+        DJNZ fm_stop_all_loop
+        RET
+
+MUTEMASK EQU $1F16
+MUTECHANGE EQU $1F5D
+mute_bits:
+        DB 1,2,4,8,16,32,64,128
+mute_music:
+        LD HL,(TEMP+4)
+        LD DE,(MUTEMASK)
+        LD (MUTEMASK),HL
+        LD A,L
+        XOR E
+        LD (MUTECHANGE),A
+        LD A,H
+        XOR D
+        LD (MUTECHANGE+1),A
+        LD C,0
+mute_fm_loop:
+        RST $08
+        LD E,C
+        LD D,0
+        LD HL,mute_bits
+        ADD HL,DE
+        LD A,(MUTECHANGE)
+        AND (HL)
+        JR Z,mute_fm_next
+        LD HL,DIRTY
+        ADD HL,DE
+        LD (HL),1
+mute_owner:
+        LD HL,OWNERS
+        ADD HL,DE
+        LD A,(HL)
+        OR A
+        JR NZ,mute_fm_next
+        LD HL,mute_bits
+        ADD HL,DE
+        LD A,(MUTEMASK)
+        AND (HL)
+        CALL NZ,keyoff
+mute_fm_next:
+        INC C
+        LD A,C
+        CP 8
+        JR NZ,mute_fm_loop
+        LD A,(MUTECHANGE+1)
+        BIT 0,A
+        JR Z,mute_noise_done
+        LD A,1
+        LD (DIRTY+8),A
+        LD C,8
+        CALL music_blocked
+        JR Z,mute_noise_done
+        LD A,(OWNERS+8)
+        OR A
+        CALL Z,keyoff
+mute_noise_done:
+        LD A,(MUTEMASK+1)
+        BIT 1,A
+        RET Z
+        JP pcm_cancel_music
+; PSG streams start each operation with a latch, so no global latch shadow.
+; SFX latch channels are relative; music uses physical tone slots 5..7.
+psg_write:
+        PUSH BC
+        PUSH DE
+        PUSH HL
+        LD E,A
+        RST $08
+        LD A,(CONTEXT)
+        OR A
+        JR Z,psg_music_write
+        LD HL,(CURSFX)
+        PUSH HL
+        LD BC,10
+        ADD HL,BC
+        LD A,(HL)
+        POP HL
+        CP 7
+        JP Z,psg_group_write
+        CP 4
+        LD A,E
+        JR NC,psg_output
+        INC HL
+        LD A,(HL)
+        SUB 5
+        RRCA
+        RRCA
+        RRCA
+        LD D,A
+        LD A,E
+        BIT 7,A
+        JR Z,psg_output
+        AND $9F
+        OR D
+        JR psg_output
+psg_music_write:
+        LD A,E
+        BIT 7,A
+        JR Z,psg_check_owner
+        RLCA
+        RLCA
+        RLCA
+        AND 3
+        ADD A,5
+        LD C,A
+        LD (PSGCH),A
+psg_check_owner:
+        RST $08
+        LD A,(PSGCH)
+        LD C,A
+        CALL voice_blocked
+        JR NZ,psg_write_done
+        ; A stolen/muted tone may still hold an SFX period. Wait for a fresh
+        ; frequency latch before allowing music volume-only updates through.
+        PUSH DE
+        LD E,C
+        LD D,0
+        LD HL,DIRTY
+        ADD HL,DE
+        POP DE
+        LD A,E
+        AND $90
+        CP $80
+        JR NZ,psg_restoring
+        LD A,(PSGUPDATE)
+        OR A
+        JR NZ,psg_restoring
+        LD (HL),0
+psg_restoring:
+        RST $08
+        LD A,(HL)
+        OR A
+        JR NZ,psg_write_done
+        LD A,E
+psg_output:
+        CALL psg_volume
+        PUSH AF
+        AND $F8
+        CP $E0
+        JR NZ,psg_not_noise_control
+        POP AF
+        LD (NOISESHADOW),A
+        PUSH AF
+psg_not_noise_control:
+        CALL pcm_rom_guard
+        POP AF
+        CALL music_sync_psg
+        JR C,psg_write_done
+        LD ($7F11),A
+psg_write_done:
+        POP HL
+        POP DE
+        POP BC
+        RET
+PSGCH EQU $1F18
+psg_keyoff:
+        PUSH BC
+        PUSH DE
+        PUSH HL
+        LD A,C
+        SUB 5
+        RRCA
+        RRCA
+        RRCA
+        OR $9F
+        JR psg_output
+
+NOISESHADOW EQU $1F4E
+; Semantic fresh music noise note, avoiding an unnecessary LFSR reset.
+noise_note:
+        XOR A
+        LD (PSGUPDATE),A
+        CALL fetch
+        LD B,A
+        CALL fetch
+        LD E,A
+        PUSH DE
+        LD A,B
+        AND $F7
+        CALL part_psg
+        POP DE
+        LD A,E
+        CALL part_psg
+        CALL part_blocked
+        JP NZ,decode
+        LD A,B
+        AND $F7
+        LD (MUSICNOISE),A
+        LD C,8
+        CALL voice_blocked
+        JP NZ,decode
+        LD A,(DIRTY+8)
+        OR A
+        JR NZ,noise_note_control
+        BIT 3,B
+        JR NZ,noise_note_control
+        LD A,(NOISESHADOW)
+        CP B
+        JR Z,noise_note_volume
+noise_note_control:
+        LD A,B
+        AND $F7
+        CALL psg_write
+noise_note_volume:
+        LD A,E
+        CALL psg_write
+        JP decode

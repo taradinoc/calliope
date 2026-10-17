@@ -1,0 +1,42 @@
+; Music uses fifth-Hz credit on the independent nominal 60 Hz SFX clock.
+MUSICHZ EQU $1F50
+MUSICACC EQU $1F52
+TEMPOSCALE EQU SHARED+34
+TEMPOREQ EQU SHARED+36
+TEMPOPENDING EQU SHARED+37
+TEMPOMARK EQU SHARED+39
+SCALEDHZ EQU SHARED+41
+tick:
+        CALL fm_sfx_tick
+        LD A,(PLAYING)
+        OR A
+        RET Z
+        LD A,(PAUSED)
+        OR A
+        RET NZ
+        LD HL,(MUSICACC)
+        LD DE,(SCALEDHZ)
+        ADD HL,DE
+clock_again:
+        LD DE,300
+        OR A
+        SBC HL,DE
+        JR C,clock_save
+        LD (MUSICACC),HL
+        CALL music_tick
+        LD HL,(MUSICACC)
+        JR clock_again
+clock_save:
+        ADD HL,DE
+        LD (MUSICACC),HL
+        RET
+clock_change:
+        CALL fetch
+        LD (MUSICHZ),A
+        CALL fetch
+        LD (MUSICHZ+1),A
+        XOR A
+        LD (MUSICACC),A
+        LD (MUSICACC+1),A
+        CALL tempo_rate
+        JP decode

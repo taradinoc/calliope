@@ -1,0 +1,1240 @@
+; Calliope experimental FM bring-up. Original implementation.
+; ABI and memory boundaries are documented in docs/status.md.
+SHARED  EQU $1D00
+READY   EQU SHARED
+CMDW    EQU SHARED+1
+CMDR    EQU SHARED+2
+EVTW    EQU SHARED+3
+EVTR    EQU SHARED+4
+FAULT   EQU SHARED+5
+PROTECT EQU SHARED+6
+REGION  EQU SHARED+7
+GEN     EQU SHARED+8
+TICK    EQU SHARED+10
+PLAYING EQU SHARED+14
+BASE    EQU SHARED+16
+DONEGEN EQU SHARED+20
+DONE    EQU SHARED+22
+PENDING EQU $1E80
+WAIT    EQU $1E81
+SEQ     EQU $1E82
+BANK    EQU $1E85
+ORDERS  EQU $1E86
+COUNT   EQU $1E89
+LOOPORD EQU $1E8A
+ORDER   EQU $1E8B
+RPTR    EQU $1E90
+PATCHES EQU $1E93
+CH      EQU $1E96
+PALACC  EQU $1E97
+PAUSED  EQU $1E9D
+TEMP    EQU $1EE0
+PATCH   EQU $1700
+CONTEXT EQU $1F75
+MUSICMASK EQU $1F76
+CURSFX  EQU $1EDB
+NOTETEMP EQU $1F60 ; current FM f-number/block, little endian
+OWNERS  EQU $1F20
+MUSPATCH EQU $1F05
+FMKEYS  EQU $1F0A ; five physical key-on masks, in YM operator order
+DIRTY   EQU $1F30
+        ORG 0
+        DI
+        JP init
+        BLOCK $08-$
+        INCLUDE "dac.i80"
+        BLOCK $38-$
+vint:
+        PUSH AF
+        CALL dac_irq
+        PUSH BC
+        LD B,3
+vint_hold:
+        DJNZ vint_hold
+        POP BC
+        LD A,(PENDING)
+        CP 32
+        JR NC,vint_full
+        INC A
+        LD (PENDING),A
+        JR vint_end
+vint_full:
+        LD A,1
+        LD (FAULT),A
+vint_end:
+        POP AF
+        EI
+        RETI
+init:
+        LD SP,$2000
+        IM 1
+        XOR A
+        LD (PENDING),A
+        LD (WAIT),A
+        LD (PLAYING),A
+        LD (TEMPOREQ),A
+        CALL music_sync_reset
+        LD (PALACC),A
+        DEC A
+        LD (BANK),A
+        CALL silence
+        CALL pcm_init
+        LD A,$80
+        LD (READY),A
+        EI
+main:
+        CALL pcm_service
+        LD A,(PROTECT)
+        OR A
+        JR NZ,main
+        CALL commands
+        RST $08
+        LD A,(PENDING)
+        OR A
+        JR Z,main
+        DI
+        LD A,(PENDING)
+        DEC A
+        LD (PENDING),A
+        EI
+        CALL tick
+        RST $08
+        LD A,(REGION)
+        OR A
+        JR Z,main
+        LD A,(PALACC)
+        INC A
+        CP 5
+        JR C,pal_save
+        XOR A
+        LD (PALACC),A
+        CALL tick
+        JR main
+pal_save:
+        LD (PALACC),A
+        JR main
+; YM write: D = address, E = value, C = physical channel.
+; DAC service may change the address latch; the final address/data pair is atomic.
+ym:
+        JP ym_direct
+ym_direct:
+        PUSH AF
+ym_busy:
+        RST $08
+        LD A,($4000)
+        AND $80
+        JR NZ,ym_busy
+        DI
+        LD A,C
+        CP 3
+        JR NC,ym_port1
+        LD A,D
+        LD ($4000),A
+        LD A,E
+        LD ($4001),A
+        EI
+        POP AF
+        RET
+ym_port1:
+        LD A,D
+        LD ($4002),A
+        LD A,E
+        LD ($4003),A
+        EI
+        POP AF
+        RET
+keyoff:
+        LD A,C
+        CP 5
+        JP NC,pair_keyoff
+        CP 3
+        JR C,key_number
+        INC A
+key_number:
+        LD E,A
+        LD D,$28
+        PUSH BC
+        LD C,0
+        CALL ym
+        POP BC
+        RET
+silence:
+        RST $08
+        LD A,(PROTECT)
+        OR A
+        JR NZ,silence
+        LD C,0
+silence_loop:
+        CALL music_blocked
+        CALL Z,silence_channel
+        INC C
+        LD A,C
+        CP 9
+        JR NZ,silence_loop
+        RET
+; Set RPTR from a bank-relative 24-bit pointer in HL.
+relative:
+        LD A,(BASE)
+        ADD A,(HL)
+        LD (RPTR),A
+        INC HL
+        LD A,(BASE+1)
+        ADC A,(HL)
+        LD (RPTR+1),A
+        INC HL
+        LD A,(BASE+2)
+        ADC A,(HL)
+        LD (RPTR+2),A
+        RET
+; Read one byte, preserving all registers except AF. Increment 24-bit RPTR.
+read:
+        CALL pcm_rom_guard
+        PUSH HL
+        PUSH BC
+        PUSH DE
+        LD A,(RPTR+1)
+        RLCA
+        LD A,(RPTR+2)
+        RLA
+        LD B,A
+        LD A,(BANK)
+        CP B
+        JR Z,read_mapped
+        LD A,B
+        LD (BANK),A
+        LD HL,$6000
+        LD E,A
+        LD B,4
+bank_bits:
+        LD A,E
+        LD (HL),A
+        RRCA
+        LD (HL),A
+        RRCA
+        LD E,A
+        RST $08
+        DJNZ bank_bits
+        XOR A
+        LD (HL),A
+read_mapped:
+        LD A,(PROTECT)
+        OR A
+        JP NZ,read_retry
+        LD HL,(RPTR)
+        SET 7,H
+        LD E,(HL)
+        LD HL,RPTR
+        INC (HL)
+        JR NZ,read_done
+        INC HL
+        INC (HL)
+        JR NZ,read_done
+        INC HL
+        INC (HL)
+read_done:
+        RST $08
+        LD A,E
+        POP DE
+        POP BC
+        POP HL
+        RET
+; Music and SFX refill twelve bytes from the current cursor.
+; Patterns stay inside one ROM bank; bytes beyond their terminator are unused.
+; The former cache tail holds the channel schedule and sixteen cursors.
+SEQCACHE EQU $1900
+SEQVALID EQU $1F4D
+fetch:
+        RST $08
+        LD A,(SEQVALID)
+        OR A
+        JR Z,fetch_miss
+fetch_cached:
+        LD A,12
+        LD HL,SEQVALID
+        SUB (HL)
+        DEC (HL)
+        LD L,A
+        LD H,$19
+        LD A,(HL)
+        LD HL,SEQ
+        INC (HL)
+        RET NZ
+        INC HL
+        INC (HL)
+        RET NZ
+        INC HL
+        INC (HL)
+        RET
+fetch_miss:
+        PUSH BC
+        PUSH DE
+        ; PCM refill uses IX for its source; keep the active SFX/voice cursor.
+        PUSH IX
+        CALL music_sync_audio
+        POP IX
+fetch_refill:
+        LD HL,(SEQ)
+        LD DE,SEQCACHE
+        LD BC,12
+fetch_map:
+        LD (RPTR),HL
+        LD A,(SEQ+2)
+        LD (RPTR+2),A
+        CALL read
+        LD HL,(RPTR)
+        DEC HL
+        SET 7,H
+; read polls the DAC immediately before this bounded twelve-byte copy.
+; Keep DMA checks between four-byte groups; the copy fits one sample period.
+fetch_copy:
+        LD A,(PROTECT)
+        OR A
+        JR NZ,fetch_protected
+        LDI
+        LDI
+        LDI
+        LDI
+        LD A,C
+        OR A
+        JR NZ,fetch_copy
+        LD A,12
+        LD (SEQVALID),A
+        POP DE
+        POP BC
+        JR fetch_cached
+fetch_protected:
+        CALL music_yield
+        ; Resident mixing may bank another source: restart and remap the fill.
+        JR fetch_refill
+commands:
+        LD A,(CMDR)
+        LD B,A
+        LD A,(CMDW)
+        CP B
+        RET Z
+        LD A,B
+        AND 15
+        ADD A,A
+        ADD A,A
+        ADD A,A
+        LD L,A
+        LD H,0
+        LD DE,$1D40
+        ADD HL,DE
+        LD DE,TEMP
+        LD BC,8
+        LDIR
+        LD A,(CMDR)
+        INC A
+        LD (CMDR),A
+        LD A,(TEMP)
+        CP 1
+        JP Z,start
+        CALL command_generation
+        RET NZ
+        LD A,(TEMP)
+        CP 2
+        JR Z,stop
+        CP 3
+        JR Z,stop_all
+        CP 4
+        JP Z,pcm_sfx
+        CP 5
+        JP Z,pcm_music
+        CP 6
+        JP Z,stop_token
+        CP 7
+        JR Z,pause_music
+        CP 8
+        JR Z,resume_music
+        CP 9
+        JP Z,fm_sfx_start
+        CP 10
+        JP Z,mute_music
+        CP 11
+        JP Z,parts_request
+        CP 12
+        JP Z,music_volume
+        CP 13
+        JP Z,tempo_request
+        LD A,2
+        LD (FAULT),A
+        RET
+; Start and SFX tokens are not song generations. Reject stale music controls.
+command_generation:
+        CP 2
+        JR Z,command_check_generation
+        CP 7
+        JR C,command_any_generation
+        CP 9
+        JR Z,command_any_generation
+command_check_generation:
+        LD HL,(TEMP+2)
+        LD DE,(GEN)
+        OR A
+        SBC HL,DE
+        RET
+command_any_generation:
+        XOR A
+        RET
+stop_all:
+        CALL fm_sfx_stop_all
+        CALL pcm_stop
+stop:
+        CALL pcm_cancel_music
+        XOR A
+        LD (PLAYING),A
+        LD (TEMPOREQ),A
+        CALL music_sync_reset
+        JP silence
+pause_music:
+        CALL music_sync_reset
+        LD HL,DIRTY
+        LD B,9
+pause_wait_note:
+        LD (HL),1
+        INC HL
+        DJNZ pause_wait_note
+        LD A,1
+        LD (PAUSED),A
+        CALL pcm_cancel_music
+        JP silence
+resume_music:
+        XOR A
+        LD (PAUSED),A
+        RET
+start:
+        CALL pcm_cancel_music
+        CALL silence
+        XOR A
+        LD (DONE),A
+        CALL music_sync_reset
+        LD (MUSICNOISE),A
+        LD (PAUSED),A
+        LD (WAIT),A
+        LD (ORDER),A
+        LD HL,SHARED+33
+        INC (HL) ; odd: elapsed publication in progress
+        LD (TICK),A
+        LD (TICK+1),A
+        LD (TICK+2),A
+        LD (TICK+3),A
+        LD HL,(TEMP+2)
+        LD (GEN),HL
+        LD HL,SHARED+33
+        INC (HL) ; even: tick reset and generation published
+        LD HL,TEMP+4
+        CALL relative
+        CALL read
+        CALL read
+        CALL read
+        LD (COUNT),A
+        CALL read
+        LD (LOOPORD),A
+        LD HL,ORDERS
+        CALL read
+        LD (HL),A
+        INC HL
+        CALL read
+        LD (HL),A
+        INC HL
+        CALL read
+        LD (HL),A
+        CALL read
+        LD (MUSICMASK),A
+        CALL parts_load
+        CALL cache_patches
+        XOR A
+        LD (PENDING),A
+        LD (PALACC),A
+        LD A,1
+        LD (PLAYING),A
+order_load:
+        XOR A
+        LD (SEQVALID),A
+        LD HL,ORDERS
+        CALL relative
+        LD A,(ORDER)
+        LD E,A
+        LD D,0
+        LD HL,(RPTR)
+        ADD HL,DE
+        ADD HL,DE
+        ADD HL,DE
+        LD (RPTR),HL
+        LD A,(RPTR+2)
+        ADC A,0
+        LD (RPTR+2),A
+        LD HL,TEMP+4
+        CALL read
+        LD (HL),A
+        INC HL
+        CALL read
+        LD (HL),A
+        INC HL
+        CALL read
+        LD (HL),A
+        LD HL,TEMP+4
+        CALL relative
+        JP channels_load
+music_tick:
+        LD A,(PAUSED)
+        OR A
+        RET NZ
+        LD A,(PLAYING)
+        OR A
+        RET Z
+        LD HL,SHARED+33
+        INC (HL)
+        LD HL,TICK
+        INC (HL)
+        JR NZ,music_channels
+        INC HL
+        INC (HL)
+        JR NZ,music_channels
+        INC HL
+        INC (HL)
+        JR NZ,music_channels
+        INC HL
+        INC (HL)
+music_channels:
+        LD HL,SHARED+33
+        INC (HL)
+        XOR A
+        CALL channels_sync
+        CALL tick_wait
+        LD A,(PLAYING)
+        OR A
+        RET Z
+        JP channels_tick
+tick_wait:
+        LD A,(WAIT)
+        OR A
+        JR Z,decode
+        DEC A
+        LD (WAIT),A
+        RET NZ
+decode:
+        CALL fetch
+        CP $80
+        JR C,decode_patch
+        CP $FD
+        JR NC,decode_normal
+        SUB $7F
+        LD (WAIT),A
+        RET
+decode_patch:
+        CP $40
+        JR C,decode_normal
+        CP $50
+        JR NC,decode_normal
+        SUB $40
+        CALL part_bind
+        JP patch_bound
+decode_normal:
+        OR A
+        JP Z,wait_op
+        CP $10
+        JP Z,patch_op
+        CP $11
+        JP Z,note_op
+        CP $13
+        JP Z,off_op
+        CP $15
+        JP Z,part_boundary
+        CP $16
+        JP Z,pan_op
+        CP $20
+        JP Z,event_op
+        CP $30
+        JP Z,psg_op
+        CP $31
+        JP Z,pcm_op
+        CP $32
+        JP Z,pcm_off_op
+        CP $33
+        JP Z,noise_note
+        CP $35
+        JP Z,psg_update_op
+        CP $37
+        JP Z,level_op
+        CP $36
+        JP Z,pitch_op
+        CP $34
+        JP Z,clock_change
+        CP $39
+        JP Z,lfo_op
+        CP $FD
+        JR Z,next_order
+        CP $FF
+        JR Z,end_song
+        LD A,3
+        LD (FAULT),A
+        JP stop
+next_order:
+        LD A,(ORDER)
+        LD B,A
+        LD A,(COUNT)
+        CP B
+        JR Z,loop_or_end
+        LD A,B
+        INC A
+        LD (ORDER),A
+        CALL order_load
+        JP decode
+loop_or_end:
+        LD A,(LOOPORD)
+        CP 255
+        JR Z,end_song
+        LD (ORDER),A
+        CALL order_load
+        JP decode
+end_song:
+        LD A,(CONTEXT)
+        OR A
+        JP NZ,fm_sfx_end
+        CALL music_sync_flush
+        LD HL,(GEN)
+        LD (DONEGEN),HL
+        LD A,1
+        LD (DONE),A
+        JP stop
+off_op:
+        CALL fetch_slot
+        XOR A
+        CALL part_note
+        CALL voice_blocked
+        CALL Z,keyoff
+        JP decode
+patch_op:
+        CALL fetch_slot
+patch_bound:
+        LD A,C
+        LD (CH),A
+        CALL fetch
+        LD B,A
+        LD A,(CONTEXT)
+        OR A
+        JR NZ,patch_install
+        CALL part_patch
+        CALL part_blocked
+        JP NZ,decode
+        LD HL,MUSPATCH
+        LD E,C
+        LD D,0
+        ADD HL,DE
+        LD (HL),B
+        CALL music_blocked
+        JP NZ,decode
+        LD HL,DIRTY
+        ADD HL,DE
+        LD (HL),0
+patch_install:
+        LD A,B
+        CALL install_patch
+        JP decode
+install_patch:
+        PUSH AF
+        CALL keyoff
+        POP AF
+        PUSH AF
+        CALL cache_one_patch
+        LD HL,FMKEYS
+        LD E,C
+        LD D,0
+        ADD HL,DE
+        LD A,(PATCH+30)
+        RLCA
+        RLCA
+        RLCA
+        RLCA
+        LD (HL),A
+        POP AF
+        LD HL,FMLOADED
+        LD E,C
+        LD D,0
+        ADD HL,DE
+        LD B,A
+        LD A,(SYNCCAPTURE)
+        OR A
+        JR NZ,patch_pending
+        LD A,(SYNCQCOUNT)
+        OR A
+        JR NZ,patch_pending
+        LD A,B
+        CP (HL)
+        LD (HL),A
+        JR NZ,patch_full
+        ; The instrument registers are already installed. TLs may have
+        ; changed through authored volume, so restore those on every call.
+        LD HL,PATCH+4
+        JP level_write
+patch_pending:
+        ; Deferred instrument writes may run after an intervening SFX.
+        ; Do not claim a known physical instrument while writes are pending.
+        LD (HL),255
+patch_full:
+        LD HL,PATCH
+        LD A,(CH)
+        LD C,A
+        CP 3
+        JR C,patch_channel
+        SUB 3
+patch_channel:
+        ADD A,$30
+        LD D,A
+        LD B,7
+patch_group:
+        PUSH BC
+        LD B,4
+patch_operator:
+        LD E,(HL)
+        INC HL
+        CALL patch_volume
+        CALL ym
+        LD A,D
+        ADD A,4
+        LD D,A
+        DJNZ patch_operator
+        POP BC
+        CALL music_yield
+        DJNZ patch_group
+        LD A,(CH)
+        CP 3
+        JR C,patch_alg
+        SUB 3
+patch_alg:
+        ADD A,$B0
+        LD D,A
+        LD E,(HL)
+        INC HL
+        CALL ym
+        LD A,D
+        ADD A,4
+        LD D,A
+        LD E,(HL)
+        JP ym
+note_op:
+        CALL fetch_slot
+        LD A,C
+        LD (CH),A
+        CALL fetch_frequency
+        LD A,1
+        CALL part_note
+        CALL voice_blocked
+        JP NZ,decode
+        LD A,(CONTEXT)
+        OR A
+        JR NZ,note_ready
+        LD HL,DIRTY
+        LD E,C
+        LD D,0
+        ADD HL,DE
+        LD A,(HL)
+        OR A
+        JR Z,note_ready
+        LD (HL),0
+        LD HL,MUSPATCH
+        ADD HL,DE
+        LD A,(HL)
+        CALL install_patch
+        CALL level_from_part
+        CALL level_current
+        CALL pan_from_part
+note_ready:
+        CALL note_write
+        JP decode
+; Frequencies are compiled offline; continuous writes never restart envelopes.
+fetch_frequency:
+        PUSH BC
+        LD HL,NOTETEMP
+        LD B,2
+        CALL fetch_block
+        POP BC
+        RET
+pitch_op:
+        CALL fetch_slot
+        CALL fetch_frequency
+        LD A,2
+        CALL part_note
+        CALL voice_blocked
+        JP NZ,decode
+        LD A,(CONTEXT)
+        OR A
+        JR NZ,pitch_write
+        LD HL,DIRTY
+        LD E,C
+        LD D,0
+        ADD HL,DE
+        LD A,(HL)
+        OR A
+        JP NZ,decode
+pitch_write:
+        CALL frequency_write
+        JP decode
+frequency_write:
+        LD A,(NOTETEMP)
+        LD B,A
+        LD A,(NOTETEMP+1)
+        LD E,A
+        RST $08
+        LD A,C
+        CP 3
+        JR C,note_channel
+        SUB 3
+note_channel:
+        ADD A,$A4
+        LD D,A
+        CALL ym
+        LD A,D
+        SUB 4
+        LD D,A
+        LD E,B
+        JP ym
+note_write:
+        CALL keyoff
+        CALL frequency_write
+        LD HL,FMKEYS
+        LD E,C
+        LD D,0
+        ADD HL,DE
+        LD B,(HL)
+        LD A,C
+        CP 3
+        JR C,note_key
+        INC A
+note_key:
+        OR B
+        LD E,A
+        LD D,$28
+        LD C,0
+        JP ym
+event_op:
+        LD A,(EVTW)
+        LD B,A
+        LD A,(EVTR)
+        LD C,A
+        LD A,B
+        SUB C
+        CP 16
+        JP NC,event_drop
+        LD A,B
+        AND 15
+        LD L,A
+        LD H,0
+        ADD HL,HL
+        ADD HL,HL
+        LD D,H
+        LD E,L
+        ADD HL,HL
+        ADD HL,DE
+        LD DE,$1DC0
+        ADD HL,DE
+        LD (HL),1
+        INC HL
+        LD (HL),0
+        INC HL
+        LD B,4
+        CALL fetch_block
+        ; Generation and logical tick are contiguous in the shared ABI.
+        ; Copy six resident bytes as one block; vint only changes PENDING.
+        LD DE,GEN
+        EX DE,HL
+        LD BC,6
+        LDIR
+        LD A,(EVTW)
+        INC A
+        LD (EVTW),A
+        JP decode
+; B resident operands -> HL, preserving BC/DE and advancing HL and SEQ.
+; Poll the DAC between two-byte groups. Window crossings use normal fetches.
+fetch_block:
+        PUSH BC
+        PUSH DE
+        RST $08
+        LD A,(SEQVALID)
+        CP B
+        JR C,fetch_block_slow
+        PUSH BC
+        SUB B
+        LD (SEQVALID),A
+        ADD A,B
+        NEG
+        ADD A,12
+        LD D,H
+        LD E,L
+        LD L,A
+        LD H,$19
+        LD C,B
+        LD B,0
+fetch_block_copy:
+        LDI
+        LD A,C
+        OR A
+        JR Z,fetch_block_advance
+        LDI
+        RST $08
+        LD A,C
+        OR A
+        JR NZ,fetch_block_copy
+fetch_block_advance:
+        EX DE,HL
+        POP BC
+        PUSH HL
+        LD HL,SEQ
+        LD A,(HL)
+        ADD A,B
+        LD (HL),A
+        JR NC,fetch_block_done
+        INC HL
+        INC (HL)
+        JR NZ,fetch_block_done
+        INC HL
+        INC (HL)
+fetch_block_done:
+        POP HL
+        JR fetch_block_return
+fetch_block_slow:
+        PUSH HL
+        CALL fetch
+        POP HL
+        LD (HL),A
+        INC HL
+        DJNZ fetch_block_slow
+fetch_block_return:
+        POP DE
+        POP BC
+        RET
+event_drop:
+        LD HL,(SHARED+24)
+        LD A,H
+        AND L
+        CP 255
+        JR Z,event_lost_saturated
+        INC HL
+        LD (SHARED+24),HL
+event_lost_saturated:
+        ; Cue loss is nonfatal; the saturating loss counter remains observable.
+        LD B,4
+event_discard:
+        CALL fetch
+        DJNZ event_discard
+        JP decode
+PSGUPDATE EQU $1F57
+psg_update_op:
+        LD A,1
+        JR psg_set_update
+psg_op:
+        XOR A
+psg_set_update:
+        LD (PSGUPDATE),A
+        CALL fetch
+        LD B,A
+psg_bytes:
+        CALL fetch
+        CALL part_psg
+        CALL psg_write
+        DJNZ psg_bytes
+        JP decode
+pcm_op:
+        LD B,3
+        LD DE,TEMP+4
+pcm_operand:
+        CALL fetch
+        LD (DE),A
+        INC DE
+        DJNZ pcm_operand
+        CALL part_blocked
+        JP NZ,decode
+        LD A,(MUTEMASK+1)
+        BIT 1,A
+        JP NZ,decode
+        XOR A
+        LD (TEMP+7),A
+        LD (TEMP+2),A
+        LD (TEMP+3),A
+        CALL pcm_music
+        JP music_sync_begin
+        INCLUDE "pcm.i80"
+        INCLUDE "fm_sfx.i80"
+        INCLUDE "parts.i80"
+cache_patches:
+        LD A,($1E9E)
+        OR A
+        RET NZ
+        ; Header patch pointer at relative 16.
+        LD HL,(BASE)
+        LD DE,16
+        ADD HL,DE
+        LD (RPTR),HL
+        LD A,(BASE+2)
+        ADC A,0
+        LD (RPTR+2),A
+        LD HL,PATCHES
+        CALL read
+        LD (HL),A
+        INC HL
+        CALL read
+        LD (HL),A
+        INC HL
+        CALL read
+        LD (HL),A
+        LD A,255
+        LD (PATCHID),A
+        LD HL,FMLOADED
+        LD B,5
+patch_forget:
+        LD (HL),A
+        INC HL
+        DJNZ patch_forget
+        LD A,1
+        LD ($1E9E),A
+        RET
+PATCHID EQU $1F5C
+FMLOADED EQU $1EF0 ; instrument ID currently installed on each physical FM voice
+cache_one_patch:
+        LD HL,PATCHID
+        CP (HL)
+        RET Z
+        LD (HL),A
+        PUSH BC
+        PUSH DE
+        PUSH AF
+        RST $08
+        LD HL,PATCHES
+        CALL relative
+        POP AF
+        LD L,A
+        LD H,0
+        RST $08
+        ADD HL,HL
+        ADD HL,HL
+        ADD HL,HL
+        ADD HL,HL
+        ADD HL,HL
+        LD DE,(RPTR)
+        ADD HL,DE
+        LD (RPTR),HL
+        LD A,(RPTR+2)
+        ADC A,0
+        LD (RPTR+2),A
+        RST $08
+        LD HL,(RPTR)
+        LD (PATCHPTR),HL
+        LD A,(RPTR+2)
+        LD (PATCHPTR+2),A
+cache_patch_restart:
+        LD HL,(PATCHPTR)
+        LD (RPTR),HL
+        LD A,(PATCHPTR+2)
+        LD (RPTR+2),A
+        CALL read
+        LD HL,(RPTR)
+        DEC HL
+        SET 7,H
+        LD DE,PATCH
+        LD BC,32
+cache_patch_group:
+        RST $08
+        LD A,(PROTECT)
+        OR A
+        JR NZ,cache_patch_protected
+        LDI
+        LDI
+        LDI
+        LDI
+        LD A,C
+        OR A
+        JR NZ,cache_patch_group
+        CALL music_yield
+        POP DE
+        POP BC
+        RET
+cache_patch_protected:
+        CALL music_yield
+        JR cache_patch_restart
+PATCHPTR EQU $1F68
+music_yield:
+        ; Only save the ROM reader and caller registers when a refill can
+        ; actually do work. Otherwise this yield is just a DAC poll.
+        RST $08
+        LD A,(FILLBUSY)
+        OR A
+        JR NZ,music_yield_fill
+        DI
+        EXX
+        LD A,C
+        EXX
+        EI
+        SUB IYH
+        NEG
+        CP PCM_LOOKAHEAD
+        RET NC
+music_yield_fill:
+        PUSH BC
+        PUSH DE
+        PUSH HL
+        PUSH IX
+        LD HL,(RPTR)
+        PUSH HL
+        LD A,(RPTR+2)
+        PUSH AF
+        CALL pcm_service
+        POP AF
+        LD (RPTR+2),A
+        POP HL
+        LD (RPTR),HL
+        POP IX
+        POP HL
+        POP DE
+        POP BC
+        RET
+        INCLUDE "volume.i80"
+        INCLUDE "fm_volume.i80"
+        INCLUDE "sfx_loop.i80"
+        INCLUDE "part_note.i80"
+        INCLUDE "timing.i80"
+        INCLUDE "tempo.i80"
+        INCLUDE "noise.i80"
+        INCLUDE "pair_keyoff.i80"
+        INCLUDE "channels.i80"
+        INCLUDE "music_sync.i80"
+        INCLUDE "music_registers.i80"
+        INCLUDE "music_audio.i80"
+        INCLUDE "music_reset.i80"
+; Note-off alone leaves an audible FM release tail after stop/pause/EOF.
+; Keep the authored TL shadows so dirty voices can restore on resume.
+silent_levels:
+        DB 127,127,127,127
+pan_output:
+        CALL pan_write
+        JP decode
+code_end:
+        IF $ > $1700
+        ERROR "Code overlaps patch cache at 0x1700"
+        ENDIF
+        BLOCK $1730-$
+read_extension_start:
+wait_op:
+        CALL fetch
+        LD (WAIT),A
+        RET
+read_extension_end:
+        IF $ > $1738
+        ERROR "Wait helper overlaps refill stack guard"
+        ENDIF
+        BLOCK $1738-$
+        DB $A5,$A5,$A5,$A5,$A5,$A5,$A5,$A5 ; refill stack guard
+        BLOCK $1780-$
+extension_start:
+        INCLUDE "part_psg.i80"
+        INCLUDE "pair_owner.i80"
+        INCLUDE "steal_order.i80"
+extension_end:
+        IF $ > $1800
+        ERROR "PSG helpers overlap SFX state"
+        ENDIF
+        BLOCK $1840-$
+pan_extension_start:
+        INCLUDE "panning.i80"
+pan_extension_end:
+        IF $ > $1860
+        ERROR "Panning helper overlaps control helpers"
+        ENDIF
+        BLOCK $1860-$
+control_extension_start:
+        INCLUDE "clock_load.i80"
+        INCLUDE "tempo_rate.i80"
+read_retry:
+        POP DE
+        POP BC
+        POP HL
+        JP read
+control_extension_end:
+        IF $ > $18D8
+        ERROR "Control helpers overlap FM level state"
+        ENDIF
+        BLOCK $190C-$
+pan_check_start:
+pan_check:
+        LD A,C
+        OR $30
+        LD L,A
+        LD H,$1F
+        LD A,(HL)
+        OR A
+        JP NZ,decode
+        JP pan_output
+pan_check_end:
+        IF $ > $1920
+        ERROR "Panning guard overlaps channel schedule"
+        ENDIF
+        BLOCK $1930-$
+pan_write_start:
+pan_write:
+        LD A,C
+        CP 3
+        JR C,pan_port
+        SUB 3
+pan_port:
+        ADD A,$B4
+        LD D,A
+        JP ym
+pan_write_end:
+        IF $ > $193E
+        ERROR "Panning write overlaps synchronization flag"
+        ENDIF
+        BLOCK $1980-$
+tone_group_extension_start:
+        INCLUDE "tone_group.i80"
+tone_group_extension_end:
+        IF $ > $1A00
+        ERROR "Tone-group helpers overlap synchronized chip queue"
+        ENDIF
+        BLOCK $1EB0-$
+silence_extension_start:
+silence_channel:
+        CALL keyoff
+        LD A,C
+        CP 5
+        RET NC
+        LD HL,silent_levels
+        JP level_write
+silence_extension_end:
+        IF $ > FREEINST
+        ERROR "Silence helper overlaps SFX allocator scratch"
+        ENDIF
+        BLOCK $1EC3-$
+level_extension_start:
+level_from_part:
+        LD A,(NPARTS)
+        OR A
+        RET Z
+        PUSH IX
+        LD IX,(CURPART)
+        CALL level_restore
+        POP IX
+        RET
+level_extension_end:
+        IF $ > $1EDB
+        ERROR "Level helper overlaps current SFX pointer"
+        ENDIF
+        BLOCK $1EF7-$
+pan_restore_start:
+pan_from_part:
+        LD HL,(CURPART)
+        LD A,L
+        ADD A,14
+        LD L,A
+        LD E,(HL)
+        LD A,E
+        OR A
+        RET Z
+        JP pan_write
+pan_restore_end:
+        IF $ > $1F05
+        ERROR "Panning restore overlaps music patch shadows"
+        ENDIF
+        BLOCK $1F78-$
+        DB $A5,$A5,$A5,$A5,$A5,$A5,$A5,$A5 ; main stack guard
+        BLOCK $2000-$

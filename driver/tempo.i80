@@ -1,0 +1,28 @@
+; Independent latest-wins boundary request, command 13.
+tempo_request:
+        LD HL,(TEMP+4)
+        LD (TEMPOPENDING),HL
+        LD HL,(TEMP+6)
+        LD (TEMPOMARK),HL
+        LD A,(TEMP+1)
+        LD (TEMPOREQ),A
+        RRCA
+        RET NC
+        JP tempo_apply
+tempo_due:
+        LD HL,TEMPOREQ
+        AND (HL)
+        RET Z
+        BIT 4,(HL)
+        JR Z,tempo_apply
+        LD HL,(TEMPOMARK)
+        LD DE,(ROWMARK)
+        OR A
+        SBC HL,DE
+        RET NZ
+tempo_apply:
+        XOR A
+        LD (TEMPOREQ),A
+        LD HL,(TEMPOPENDING)
+        LD (TEMPOSCALE),HL
+        JP tempo_rate

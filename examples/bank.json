@@ -1,0 +1,256 @@
+{
+  "version": 1,
+  "songs": [
+    {
+      "id": 1,
+      "name": "melody",
+      "source": "melody232.fur",
+      "voices": [
+        {
+          "channel": "melody",
+          "slot": "fm0"
+        }
+      ],
+      "events": {
+        "1": {
+          "id": 7,
+          "parameter": 42
+        }
+      }
+    },
+    {
+      "id": 2,
+      "name": "elevator",
+      "source": "elevator.fur",
+      "loop_order": 0,
+      "voices": [
+        {
+          "channel": 0,
+          "slot": "fm0"
+        },
+        {
+          "channel": 1,
+          "slot": "fm1"
+        },
+        {
+          "channel": 5,
+          "slot": "pcm"
+        },
+        {
+          "channel": 6,
+          "slot": "tone0"
+        },
+        {
+          "channel": 7,
+          "slot": "tone1"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "arrangements",
+      "source": "arrangements232.fur",
+      "loop_order": 0,
+      "voices": [
+        {
+          "name": "happy",
+          "channel": 0,
+          "slot": "fm0"
+        },
+        {
+          "name": "sad",
+          "channel": 1,
+          "slot": "fm0"
+        },
+        {
+          "name": "bass",
+          "channel": 2,
+          "slot": "fm1"
+        }
+      ],
+      "groups": {
+        "melody": [
+          "happy",
+          "sad"
+        ],
+        "bass": [
+          "bass"
+        ]
+      },
+      "arrangements": {
+        "happy": [
+          "happy",
+          "bass"
+        ],
+        "sad": [
+          "sad",
+          "bass"
+        ]
+      },
+      "initial_arrangement": "happy",
+      "markers": [
+        {
+          "order": 0,
+          "row": 10,
+          "id": 2
+        }
+      ],
+      "events": {
+        "1": {
+          "id": 7,
+          "parameter": 42
+        }
+      }
+    },
+    {
+      "id": 4,
+      "name": "noise_music",
+      "source": "noise232.fur",
+      "voices": [
+        {
+          "channel": 3,
+          "slot": "noise"
+        }
+      ],
+      "loop_order": 0
+    },
+    {
+      "id": 5,
+      "name": "green_hill_zone",
+      "source": "sonic_greenhillzone_annotated.fur",
+      "pcm_gain": 1.0,
+      "external_commands": "passthrough",
+      "fm_steal_order": ["fm4", "fm3", "fm2", "fm0", "fm1"],
+      "voices": [
+        {
+          "name": "fm_a",
+          "channel": 0,
+          "slot": "fm0"
+        },
+        {
+          "name": "fm_b",
+          "channel": 1,
+          "slot": "fm1"
+        },
+        {
+          "name": "fm_c",
+          "channel": 2,
+          "slot": "fm2"
+        },
+        {
+          "name": "fm_d",
+          "channel": 3,
+          "slot": "fm3"
+        },
+        {
+          "name": "fm_e",
+          "channel": 4,
+          "slot": "fm4"
+        },
+        {
+          "name": "drums",
+          "channel": 5,
+          "slot": "pcm"
+        },
+        {
+          "name": "psg_a",
+          "channel": 6,
+          "slot": "tone0"
+        },
+        {
+          "name": "psg_b",
+          "channel": 7,
+          "slot": "tone1"
+        },
+        {
+          "name": "hats",
+          "channel": 9,
+          "slot": "noise"
+        }
+      ],
+      "groups": {
+        "drums": [
+          "drums",
+          "hats"
+        ],
+        "fm": [
+          "fm_a",
+          "fm_b",
+          "fm_c",
+          "fm_d",
+          "fm_e"
+        ],
+        "psg": [
+          "psg_a",
+          "psg_b"
+        ]
+      }
+    }
+  ],
+  "sfx": [
+    {
+      "id": 10,
+      "name": "multi_fm",
+      "source": "multi_fm232.fur",
+      "priority": 2
+    },
+    {
+      "id": 9,
+      "name": "multi_psg",
+      "source": "multi_psg232.fur",
+      "priority": 2
+    },
+    {
+      "id": 2,
+      "name": "click",
+      "source": "click.wav",
+      "priority": 1
+    },
+    {
+      "id": 3,
+      "name": "fm_ring",
+      "source": "fm_ring.fur",
+      "priority": 2
+    },
+    {
+      "id": 4,
+      "name": "psg_ring",
+      "source": "psg_ring.fur",
+      "priority": 2
+    },
+    {
+      "id": 5,
+      "name": "chu",
+      "source": "chu.wav",
+      "priority": 2
+    },
+    {
+      "id": 6,
+      "name": "noise",
+      "source": "noise232.fur",
+      "priority": 2
+    },
+    {
+      "id": 7,
+      "name": "coupled",
+      "source": "coupled232.fur",
+      "priority": 2
+    },
+    {
+      "id": 8,
+      "name": "coupled_loop",
+      "source": "coupled232.fur",
+      "priority": 2,
+      "loop": {
+        "start": [
+          0,
+          0
+        ],
+        "end": [
+          0,
+          5
+        ]
+      }
+    }
+  ]
+}

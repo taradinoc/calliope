@@ -1,0 +1,36 @@
+; Instance bytes 11..13 hold an absolute optional loop-entry pointer.
+sfx_loop_init:
+        LD HL,(PCMDESC+8)
+        LD A,H
+        OR L
+        LD B,A
+        LD A,(PCMDESC+10)
+        OR B
+        JR Z,sfx_loop_none
+        LD HL,PCMDESC+8
+        CALL relative
+        LD HL,(RPTR)
+        LD (IX+11),L
+        LD (IX+12),H
+        LD A,(RPTR+2)
+        LD (IX+13),A
+        RET
+sfx_loop_none:
+        LD (IX+11),A
+        LD (IX+12),A
+        LD (IX+13),A
+        RET
+sfx_loop_end:
+        LD A,(IX+11)
+        OR (IX+12)
+        OR (IX+13)
+        JP Z,fm_release
+        LD L,(IX+11)
+        LD H,(IX+12)
+        LD (SEQ),HL
+        LD A,(IX+13)
+        LD (SEQ+2),A
+        XOR A
+        LD (SEQVALID),A
+        LD (WAIT),A
+        JP decode

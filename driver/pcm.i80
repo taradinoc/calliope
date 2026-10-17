@@ -1,0 +1,571 @@
+; One PCM source writes unsigned DAC bytes directly into the output FIFO.
+; Music notes yield to equal/higher-priority SFX; SFX win ties against music.
+PCM_LOOKAHEAD EQU 192
+PCM_TIMER_A EQU 1016 ; 1152 YM clocks per DAC sample
+PCM0 EQU $1EA0
+PCMSFX EQU $1EC0
+PCMEND EQU $1EC1
+PCMENDLEFT EQU $1EC2
+OUTW EQU $1E98
+DACON EQU $1E9A
+PCMFAULT EQU SHARED+26
+PCMMUSICPRI EQU SHARED+30 ; host configuration byte, zero in the loaded image
+PCMDESC EQU $1720
+FILLBUSY EQU $1F10
+FILLRUN EQU $1F11
+MAINSAVE EQU $1F12
+FILLSAVE EQU $1F14
+; IX state: ptr24, remaining24, loopPtr24, loopLength24, active, priority, token16.
+; active 2 holds SFX ownership until its last queued sample has played.
+pcm_init:
+        XOR A
+        LD (DACON),A
+        LD (PCMSFX),A
+        LD (PCM0+12),A
+        LD (FILLBUSY),A
+        LD (FILLRUN),A
+        LD HL,$1C00
+        LD DE,$1C01
+        LD BC,255
+        LD (HL),$80
+        LDIR
+        EXX
+        LD BC,$1C00
+        LD DE,$4001
+        LD HL,$4000
+        EXX
+        LD A,192
+        LD (OUTW),A
+        LD IY,$C000
+        LD C,0
+        LD D,$24
+        LD E,PCM_TIMER_A/4
+        CALL ym
+        LD D,$25
+        LD E,PCM_TIMER_A & 3
+        CALL ym
+        LD D,$27
+        LD E,$15
+        CALL ym
+        LD D,$2B
+        LD E,$80
+        CALL ym
+        LD A,1
+        LD (DACON),A
+        LD A,$F3
+        LD (dac_service),A
+        RET
+pcm_stop:
+        LD IX,PCM0
+pcm_cancel:
+        XOR A
+        LD (IX+12),A
+        LD (IX+13),A
+        LD (PCMSFX),A
+        RET
+pcm_cancel_music:
+        LD A,(PCMSFX)
+        OR A
+        RET NZ
+        JR pcm_stop
+pcm_stop_token:
+        LD A,(PCMSFX)
+        OR A
+        RET Z
+        LD IX,PCM0
+        LD A,(TEMP+4)
+        CP (IX+14)
+        RET NZ
+        LD A,(TEMP+5)
+        CP (IX+15)
+        RET NZ
+        JR pcm_cancel
+pcm_sfx:
+        CALL pcm_check_end
+        LD IX,PCM0
+        LD A,(PCMSFX)
+        OR A
+        JR Z,pcm_sfx_music
+        LD A,(TEMP+7)
+        CP (IX+13)
+        RET C
+        RET Z
+        JR pcm_sfx_accept
+pcm_sfx_music:
+        LD A,(IX+12)
+        OR A
+        JR Z,pcm_sfx_accept
+        LD A,(PCMMUSICPRI)
+        LD B,A
+        LD A,(TEMP+7)
+        CP B
+        RET C ; SFX win ties against music, preserving default priority zero
+pcm_sfx_accept:
+        LD A,1
+        JR pcm_start
+pcm_music:
+        CALL pcm_check_end
+        LD IX,PCM0
+        LD A,(PCMSFX)
+        OR A
+        JR Z,pcm_music_accept
+        LD A,(PCMMUSICPRI)
+        CP (IX+13)
+        RET C
+        RET Z
+pcm_music_accept:
+        XOR A
+pcm_start:
+        PUSH AF
+        CALL pcm_prime
+        POP AF
+        LD (PCMSFX),A
+        LD HL,TEMP+4
+        CALL relative
+        LD HL,PCMDESC
+        LD B,16
+pcm_descriptor:
+        CALL read
+        LD (HL),A
+        INC HL
+        LD A,B
+        AND 3
+        CALL Z,music_yield
+        DJNZ pcm_descriptor
+        LD A,(TEMP+7)
+        LD (IX+13),A
+        LD HL,(TEMP+2)
+        LD (IX+14),L
+        LD (IX+15),H
+        LD HL,PCMDESC+4
+        CALL relative
+        LD HL,(RPTR)
+        LD (IX+0),L
+        LD (IX+1),H
+        LD A,(RPTR+2)
+        LD (IX+2),A
+        RST $08
+        LD HL,(PCMDESC+7)
+        LD (IX+3),L
+        LD (IX+4),H
+        LD A,(PCMDESC+9)
+        LD (IX+5),A
+        RST $08
+        ; Loops are handled at the exact converted sample boundary.
+        LD A,(PCMDESC+13)
+        LD B,A
+        LD A,(PCMDESC+14)
+        OR B
+        LD B,A
+        LD A,(PCMDESC+15)
+        OR B
+        JR Z,pcm_no_loop
+        LD HL,(PCMDESC+13)
+        LD (IX+3),L
+        LD (IX+4),H
+        LD A,(PCMDESC+15)
+        LD (IX+5),A
+        LD HL,(PCMDESC+10)
+        LD DE,(RPTR)
+        ADD HL,DE
+        LD (IX+6),L
+        LD (IX+7),H
+        LD A,(RPTR+2)
+        LD B,A
+        LD A,(PCMDESC+12)
+        ADC A,B
+        LD (IX+8),A
+        RST $08
+        LD HL,(PCMDESC+13)
+        LD DE,(PCMDESC+10)
+        OR A
+        SBC HL,DE
+        LD (IX+9),L
+        LD (IX+10),H
+        LD A,(PCMDESC+12)
+        LD B,A
+        LD A,(PCMDESC+15)
+        SBC A,B
+        LD (IX+11),A
+        JR pcm_armed
+pcm_no_loop:
+        XOR A
+        LD (IX+9),A
+        LD (IX+10),A
+        LD (IX+11),A
+pcm_armed:
+        LD (IX+12),1
+        RET
+; Publish bounded 64-byte chunks directly, with no input buffers or mixer.
+pcm_service:
+        CALL pcm_check_end
+pcm_service_loop:
+        CALL pcm_work
+        JR C,pcm_service_loop
+        RST $08
+        LD A,(FILLBUSY)
+        OR A
+        JR NZ,pcm_service_loop
+        RET
+pcm_work:
+        LD A,(FILLBUSY)
+        OR A
+        JP NZ,pcm_fill_resume
+        DI
+        EXX
+        LD A,C
+        EXX
+        EI
+        LD B,A
+        LD A,(OUTW)
+        SUB B
+        CP PCM_LOOKAHEAD
+        RET NC
+        LD A,(PROTECT)
+        OR A
+        RET NZ
+        LD IX,PCM0
+pcm_fill:
+        LD (MAINSAVE),SP
+        LD SP,$1780
+        LD A,1
+        LD (FILLBUSY),A
+        LD (FILLRUN),A
+        CALL pcm_fill_body
+        XOR A
+        LD (FILLBUSY),A
+        LD (FILLRUN),A
+        LD SP,(MAINSAVE)
+        SCF ; refill again until the output queue reaches its target
+        RET
+pcm_fill_body:
+        LD D,$1C
+        LD A,(OUTW)
+        LD E,A
+        LD A,64
+        LD ($1E9B),A
+pcm_segment:
+        CALL pcm_publish
+        RST $08
+        LD A,(IX+12)
+        CP 1
+        JP NZ,pcm_zeros
+        CALL pcm_remaining
+        JP Z,pcm_zeros
+        LD A,($1E9B)
+        LD C,A
+        LD A,(IX+5)
+        OR (IX+4)
+        JR NZ,pcm_segment_bank
+        LD A,(IX+3)
+        CP C
+        JR NC,pcm_segment_bank
+        LD C,A
+pcm_segment_bank:
+        LD A,(IX+1)
+        AND $7F
+        CP $7F
+        JR NZ,pcm_segment_copy
+        LD A,(IX+0)
+        NEG
+        JR Z,pcm_segment_copy
+        CP C
+        JR NC,pcm_segment_copy
+        LD C,A
+pcm_segment_copy:
+        LD A,C
+        LD ($1E9C),A
+        LD L,(IX+0)
+        LD H,(IX+1)
+        LD (RPTR),HL
+        LD A,(IX+2)
+        LD (RPTR+2),A
+        CALL read
+        LD (DE),A
+        INC DE
+        LD HL,(RPTR)
+        SET 7,H
+        LD A,($1E9C)
+        DEC A
+        LD C,A
+        LD B,0
+pcm_copy:
+        ; The consumer only needs the high IY byte. OUTW is published at
+        ; segment completion (or suspension) before main can use it.
+        LD IYH,E
+        RST $08
+        LD A,(PROTECT)
+        OR A
+        JR NZ,pcm_copy_protected
+        LD A,C
+        CP 5
+        JR C,pcm_tail
+        LDI
+        LDI
+        LDI
+        LDI
+        LDI
+        JR pcm_copy
+pcm_copy_protected:
+        CALL pcm_rom_guard
+        JR pcm_copy
+pcm_tail:
+        OR A
+        JR Z,pcm_segment_done
+        LDI
+        JR pcm_copy
+pcm_segment_done:
+        CALL pcm_publish
+        LD A,($1E9C)
+        LD C,A
+        LD B,0
+        LD L,(IX+0)
+        LD H,(IX+1)
+        ADD HL,BC
+        LD (IX+0),L
+        LD (IX+1),H
+        JR NC,pcm_segment_remaining
+        INC (IX+2)
+pcm_segment_remaining:
+        RST $08
+        LD L,(IX+3)
+        LD H,(IX+4)
+        OR A
+        SBC HL,BC
+        LD (IX+3),L
+        LD (IX+4),H
+        JR NC,pcm_segment_count
+        DEC (IX+5)
+pcm_segment_count:
+        LD A,($1E9B)
+        SUB C
+        LD ($1E9B),A
+        JP NZ,pcm_segment
+        JR pcm_publish
+pcm_zeros:
+        LD A,($1E9B)
+        LD B,A
+pcm_zero_loop:
+        ; Compact silence batches leave room for priority arbitration in code.
+        LD A,B
+        CP 4
+        JR C,pcm_zero_tail
+        SUB 4
+        LD B,A
+        LD A,$80
+        LD (DE),A
+        INC E
+        LD (DE),A
+        INC E
+        LD (DE),A
+        INC E
+        LD (DE),A
+        INC E
+        LD A,E
+        LD (OUTW),A
+        LD IYH,A
+        RST $08
+        JR pcm_zero_loop
+pcm_zero_tail:
+        OR A
+        RET Z
+pcm_zero_byte:
+        LD A,$80
+        LD (DE),A
+        INC E
+        CALL pcm_publish
+        RST $08
+        DJNZ pcm_zero_byte
+        RET
+pcm_publish:
+        LD A,E
+        LD (OUTW),A
+        LD IYH,A
+        RET
+pcm_remaining:
+        LD A,(IX+5)
+        OR (IX+4)
+        OR (IX+3)
+        RET NZ
+        LD A,(IX+11)
+        OR (IX+10)
+        OR (IX+9)
+        JR Z,pcm_source_end
+        LD L,(IX+6)
+        LD H,(IX+7)
+        LD (IX+0),L
+        LD (IX+1),H
+        LD A,(IX+8)
+        LD (IX+2),A
+        LD L,(IX+9)
+        LD H,(IX+10)
+        LD (IX+3),L
+        LD (IX+4),H
+        LD A,(IX+11)
+        LD (IX+5),A
+        LD A,1
+        OR A
+        RET
+pcm_source_end:
+        LD (IX+12),2
+        LD A,E
+        LD (PCMEND),A
+        DI
+        EXX
+        LD A,C
+        EXX
+        EI
+        LD B,A
+        LD A,E
+        SUB B
+        LD (PCMENDLEFT),A
+        XOR A
+        RET
+pcm_check_end:
+        LD A,(PCM0+12)
+        CP 2
+        RET NZ
+        DI
+        EXX
+        LD A,C
+        EXX
+        EI
+        LD B,A
+        LD A,(PCMEND)
+        SUB B
+        JR Z,pcm_end_played
+        LD B,A
+        LD A,(PCMENDLEFT)
+        CP B
+        JR C,pcm_end_played
+        LD A,B
+        LD (PCMENDLEFT),A
+        RET
+pcm_end_played:
+        XOR A
+        LD (PCM0+12),A
+        LD (PCMSFX),A
+        RET
+; ROM reads yield during DMA; already published FIFO bytes remain playable.
+pcm_rom_guard:
+        RST $08
+        LD A,(PROTECT)
+        OR A
+        RET Z
+        LD A,(FILLRUN)
+        OR A
+        JR Z,pcm_guard_main
+        CALL pcm_fill_yield
+        JR pcm_rom_guard
+pcm_guard_main:
+        CALL music_yield
+        JR pcm_rom_guard
+dac_empty:
+        LD A,(PCMFAULT)
+        OR A
+        JR NZ,dac_empty_silence
+        PUSH HL
+        LD HL,2
+        ADD HL,SP
+        LD A,(HL)
+        LD (SHARED+28),A
+        INC HL
+        LD A,(HL)
+        LD (SHARED+29),A
+        POP HL
+        LD A,1
+        LD (PCMFAULT),A
+dac_empty_silence:
+        LD A,$80
+        JP dac_output
+
+
+; Source replacement can require two initial ROM refills. Prime to the upper
+; FIFO range before changing input ownership; queued output remains immutable.
+pcm_prime:
+        CALL pcm_service
+        JP pcm_service
+dac_irq:
+        LD A,(DACON)
+        OR A
+        RET Z
+        EXX
+        BIT 0,(HL)
+        JR Z,dac_irq_done
+        LD (HL),$27
+        LD A,$15
+        LD (DE),A
+        LD A,IYH
+        CP C
+        JR Z,dac_irq_empty
+        LD A,(BC)
+        INC C
+        JR dac_irq_out
+dac_irq_empty:
+        LD A,1
+        LD (PCMFAULT),A
+        LD A,$80
+dac_irq_out:
+        LD (HL),$2A
+        LD (DE),A
+        DEC IYL
+        JR NZ,dac_irq_done
+        INC IYL ; defer register delivery until outside the asserted video IRQ
+dac_irq_done:
+        EXX
+        RET
+
+pcm_fill_yield:
+        PUSH AF
+        PUSH BC
+        PUSH DE
+        PUSH HL
+        PUSH IX
+        LD HL,(RPTR)
+        PUSH HL
+        LD A,(RPTR+2)
+        PUSH AF
+        LD A,(BANK)
+        PUSH AF
+        CALL pcm_publish
+        LD (FILLSAVE),SP
+        XOR A
+        LD (FILLRUN),A
+        LD SP,(MAINSAVE)
+        RET
+pcm_fill_resume:
+        LD A,(PROTECT)
+        OR A
+        RET NZ
+        LD (MAINSAVE),SP
+        LD SP,(FILLSAVE)
+        LD A,1
+        LD (FILLRUN),A
+        POP AF
+        LD HL,BANK
+        CP (HL)
+        JR Z,pcm_resume_bank_ready
+        LD (HL),A
+        LD HL,$6000
+        LD B,8
+pcm_resume_bank:
+        PUSH AF
+        RST $08
+        POP AF
+        LD (HL),A
+        RRCA
+        DJNZ pcm_resume_bank
+        XOR A
+        LD (HL),A
+pcm_resume_bank_ready:
+        POP AF
+        LD (RPTR+2),A
+        POP HL
+        LD (RPTR),HL
+        POP IX
+        POP HL
+        POP DE
+        POP BC
+        POP AF
+        RET
+

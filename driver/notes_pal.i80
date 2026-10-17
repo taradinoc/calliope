@@ -1,0 +1,13 @@
+; One octave, C0..B0. The decoder adds the octave to the YM block field.
+        DW $028A
+        DW $02B0
+        DW $02DA
+        DW $0305
+        DW $0332
+        DW $0363
+        DW $0396
+        DW $03CE
+        DW $0407
+        DW $0445
+        DW $0486
+        DW $04CA

@@ -1,0 +1,11 @@
+{
+  "protocol": 1,
+  "mode": "z80",
+  "region": "pal",
+  "pcm_timer": 1016,
+  "bank_address": 1048576,
+  "mailbox_address": 16711787,
+  "bank_length_address": 43030,
+  "sha256": "1b55f2646b7b5f0fa3b6c0a65ad432e7584188368658a8d55eaef5e8900e0f68",
+  "bank_revision": 12
+}

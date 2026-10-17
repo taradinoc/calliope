@@ -1,0 +1,25 @@
+ ; A: 0 off, 1 fresh note, 2 frequency-only update. Updates retain gate state.
+part_note:
+        PUSH AF
+        LD A,(CONTEXT)
+        OR A
+        JR NZ,part_note_done
+        LD A,(NPARTS)
+        OR A
+        JR Z,part_note_done
+        LD HL,(CURPART)
+        LD DE,5
+        ADD HL,DE
+        LD DE,(NOTETEMP)
+        LD (HL),E
+        INC HL
+        LD (HL),D
+        INC HL
+        POP AF
+        CP 2
+        RET Z
+        LD (HL),A
+        RET
+part_note_done:
+        POP AF
+        RET

@@ -1,0 +1,27 @@
+dac_service:
+        RET ; armed as DI ($F3) after alternate registers and timer exist
+        EXX
+        BIT 0,(HL)
+        JR NZ,dac_tick
+        EXX
+        EI
+        RET
+dac_tick:
+        LD (HL),$27
+        LD A,$15
+        LD (DE),A
+        LD A,IYH
+        CP C
+        JP Z,dac_empty
+        LD A,(BC)
+        INC C
+dac_output:
+        LD (HL),$2A
+        LD (DE),A
+        DEC IYL
+        CALL Z,music_sync_dac
+dac_no_tick:
+        EXX
+dac_return:
+        EI
+        RET

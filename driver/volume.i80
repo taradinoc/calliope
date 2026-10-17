@@ -1,0 +1,162 @@
+; Music attenuation is additive in chip-native TL/PSG steps. SFX bypass it.
+FMATT EQU $1F54
+PSGATT EQU $1F55
+PSGVOL EQU $1F58
+patch_volume:
+        LD A,(FMATT)
+        OR A
+        RET Z
+        LD A,D
+        AND $F0
+        CP $40
+        RET NZ
+        LD A,(CONTEXT)
+        OR A
+        RET NZ
+        PUSH HL
+        PUSH BC
+        LD A,L
+        DEC A
+        AND 3
+        LD B,A
+        ; Form the operator address before testing the physical-shadow page.
+        ; DEC must not replace the page comparison flags.
+        LD A,L
+        DEC A
+        LD L,A
+        LD A,H
+        CP $18
+        LD A,L
+        JR Z,volume_compact_mask
+        OR 24
+volume_compact_mask:
+        OR 7
+        LD L,A
+        LD A,(HL)
+        INC B
+volume_mask:
+        RRCA
+        DJNZ volume_mask
+        JR NC,volume_tl_done
+        LD A,(FMATT)
+        ADD A,E
+        JP P,volume_tl_ready
+        LD A,127
+volume_tl_ready:
+        LD E,A
+volume_tl_done:
+        POP BC
+        POP HL
+        RET
+psg_volume:
+        PUSH AF
+        AND $90
+        CP $90
+        JR NZ,psg_volume_done
+        LD A,(CONTEXT)
+        OR A
+        JR NZ,psg_volume_done
+        POP AF
+        PUSH BC
+        PUSH HL
+        LD B,A
+        RLCA
+        RLCA
+        RLCA
+        AND 3
+        LD L,A
+        LD H,0
+        PUSH DE
+        LD DE,PSGVOL
+        ADD HL,DE
+        POP DE
+        LD (HL),B
+        LD A,(PSGATT)
+        OR A
+        JR Z,psg_full_volume
+        LD A,B
+        AND 15
+        LD B,A
+        LD A,(PSGATT)
+        ADD A,B
+        CP 16
+        JR C,psg_volume_ready
+        LD A,15
+psg_volume_ready:
+        LD B,A
+        LD A,(HL)
+        AND $F0
+        OR B
+        POP HL
+        POP BC
+        RET
+psg_full_volume:
+        LD A,B
+        POP HL
+        POP BC
+        RET
+psg_volume_done:
+        POP AF
+        RET
+music_volume:
+        LD A,(TEMP+4)
+        LD (FMATT),A
+        LD A,(TEMP+5)
+        LD (PSGATT),A
+        LD A,(PLAYING)
+        OR A
+        RET Z
+        LD A,(PARTBLOCK)
+        PUSH AF
+        XOR A
+        LD (PARTBLOCK),A
+        LD C,0
+volume_channel:
+        CALL music_blocked
+        JR NZ,volume_next
+        CALL level_address
+        CALL level_write
+volume_next:
+        CALL music_yield
+        INC C
+        LD A,C
+        CP 5
+        JR C,volume_channel
+        LD HL,PSGVOL
+        LD C,5
+volume_psg:
+        CALL music_blocked
+        JR NZ,volume_psg_next
+        LD A,(HL)
+        BIT 7,A
+        JR Z,volume_psg_next
+        CALL psg_write
+volume_psg_next:
+        INC HL
+        INC C
+        LD A,C
+        CP 9
+        JR C,volume_psg
+        POP AF
+        LD (PARTBLOCK),A
+        RET
+
+level_write:
+        LD A,C
+        CP 3
+        JR C,level_port
+        SUB 3
+level_port:
+        ADD A,$40
+        LD D,A
+        LD B,4
+volume_operator:
+        LD E,(HL)
+        INC HL
+        CALL patch_volume
+        CALL ym
+        LD A,D
+        ADD A,4
+        LD D,A
+        DJNZ volume_operator
+        RET

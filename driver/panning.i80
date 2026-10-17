@@ -1,0 +1,17 @@
+; Full B4 value: stereo bits plus the current instrument's AMS/FMS.
+; Offset 14 is logical FM state; PSG does not use it. Zero means unset.
+pan_op:
+        CALL fetch_slot
+        CALL fetch
+        LD E,A
+        LD A,(CONTEXT)
+        OR A
+        JP NZ,pan_output
+        LD HL,(CURPART)
+        LD A,L
+        ADD A,14
+        LD L,A
+        LD (HL),E
+        CALL voice_blocked
+        JP NZ,decode
+        JP pan_check

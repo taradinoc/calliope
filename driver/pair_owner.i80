@@ -1,0 +1,24 @@
+; Tone-derived music noise reserves both physical PSG resources.
+MUSICNOISE EQU $1F67
+music_owner_check:
+        CALL music_single_check
+        RET NZ
+        LD A,C
+        CP 7
+        JR C,pair_unblocked
+        CP 9
+        JR NC,pair_unblocked
+        LD A,(MUSICNOISE)
+        AND 3
+        CP 3
+        JR NZ,pair_unblocked
+        PUSH BC
+        LD A,C
+        XOR 15
+        LD C,A
+        CALL music_single_check
+        POP BC
+        RET
+pair_unblocked:
+        XOR A
+        RET

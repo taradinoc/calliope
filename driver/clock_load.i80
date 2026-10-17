@@ -1,0 +1,18 @@
+clock_load:
+        PUSH AF
+        CALL read
+        CALL read
+        CALL read
+        LD (MUSICHZ),A
+        CALL read
+        LD (MUSICHZ+1),A
+        XOR A
+        LD (MUSICACC),A
+        LD (MUSICACC+1),A
+        LD (TEMPOREQ),A
+        LD HL,256
+        LD (TEMPOSCALE),HL
+        CALL tempo_rate
+        CALL steal_order_load
+        POP AF
+        RET

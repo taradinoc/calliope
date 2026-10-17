@@ -1,0 +1,11 @@
+{
+  "protocol": 1,
+  "mode": "hybrid",
+  "region": "ntsc",
+  "pcm_timer": 1020,
+  "bank_address": 1048576,
+  "mailbox_address": 16711788,
+  "bank_length_address": 66758,
+  "sha256": "0fd55aabe00943786691457212e584ed18f5225699da1cbb60bc5d206076b0bc",
+  "bank_revision": 12
+}

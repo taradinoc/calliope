@@ -1,0 +1,32 @@
+music_sync_audio:
+        ; Setup uses the same low-water check; frontier marks prime the full
+        ; lookahead before capturing register writes.
+        DI
+        EXX
+        LD A,C
+        EXX
+        EI
+        LD B,A
+        LD A,(OUTW)
+        SUB B
+        CP 128 ; retain a video-frame of headroom before protected DMA
+        RET NC
+        JP pcm_service
+
+music_sync_flush:
+        LD A,(SYNCQCOUNT)
+        OR A
+        RET Z
+        CALL pcm_service
+        JR music_sync_flush
+
+music_sync_restore:
+        LD HL,ym_direct
+        LD (ym+1),HL
+        LD HL,music_sync_psg_direct
+        LD (music_sync_psg+1),HL
+        RET
+
+music_sync_prepare_direct:
+        CALL pcm_service
+        JP music_sync_mark

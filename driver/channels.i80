@@ -1,0 +1,164 @@
+; Four bytes per channel: wait, absolute sequence pointer24.
+TRACKS EQU $1940
+TRACKORDER EQU $1920
+SONGSYNC EQU $193E
+
+channels_sync:
+        LD B,A
+        LD A,(SONGSYNC)
+        ADD A,A
+        LD A,B
+        RET NC
+        LD (SYNCCAPTURE),A
+        JP music_sync_prepare
+
+channels_pointer:
+        CALL read
+        LD E,A
+        LD A,(BASE)
+        ADD A,E
+        LD (IX+1),A
+        PUSH AF
+        CALL read
+        LD E,A
+        POP AF
+        LD A,(BASE+1)
+        ADC A,E
+        LD (IX+2),A
+        PUSH AF
+        CALL read
+        LD E,A
+        POP AF
+        LD A,(BASE+2)
+        ADC A,E
+        LD (IX+3),A
+        LD (IX+0),0
+        RET
+channels_load:
+        LD IX,WAIT
+        CALL channels_pointer
+        LD IX,TRACKS
+        LD A,(NPARTS)
+        LD B,A
+channels_load_loop:
+        PUSH BC
+        CALL channels_pointer
+        POP BC
+        LD DE,4
+        ADD IX,DE
+        DJNZ channels_load_loop
+        XOR A
+        LD (SEQVALID),A
+        RET
+
+channels_schedule:
+        LD DE,TRACKORDER
+        LD C,9
+        CALL channels_schedule_pass
+        PUSH DE
+        LD C,255
+        CALL channels_schedule_pass
+        POP HL
+        SET 7,(HL)
+        RET
+channels_schedule_pass:
+        LD HL,PARTS
+        LD A,(NPARTS)
+        LD B,A
+channels_schedule_loop:
+        LD A,(HL)
+        CP 9
+        LD A,C
+        JR NZ,channels_schedule_chip
+        CP 9
+        JR channels_schedule_test
+channels_schedule_chip:
+        CP 255
+channels_schedule_test:
+        JR NZ,channels_schedule_next
+        LD A,L
+        RRCA
+        RRCA
+        ADD A,$40
+        LD (DE),A
+        INC E
+channels_schedule_next:
+        LD A,L
+        ADD A,16
+        LD L,A
+        DJNZ channels_schedule_loop
+        RET
+
+channels_tick:
+        LD HL,(SEQ)
+        PUSH HL
+        LD A,(SEQ+2)
+        PUSH AF
+        LD A,(WAIT)
+        PUSH AF
+        LD DE,TRACKORDER
+        LD A,(NPARTS)
+        LD B,A
+channels_loop:
+        RST $08
+        LD A,(DE)
+        OR A
+        JP P,channels_selected
+        AND $7F
+        PUSH BC
+        PUSH DE
+        PUSH AF
+        LD A,1
+        CALL channels_sync
+        POP AF
+        POP DE
+        POP BC
+channels_selected:
+        LD IXL,A
+        LD IXH,$19
+        LD A,(IX+0)
+        OR A
+        JR Z,channels_due
+        DEC (IX+0)
+        JR NZ,channels_next
+channels_due:
+        PUSH BC
+        PUSH DE
+        LD A,IXL
+        SUB $40
+        RRCA
+        RRCA
+        CALL part_bind
+        PUSH IX
+        LD L,(IX+1)
+        LD H,(IX+2)
+        LD (SEQ),HL
+        LD A,(IX+3)
+        LD (SEQ+2),A
+        XOR A
+        LD (SEQVALID),A
+        CALL decode
+        POP IX
+        LD HL,(SEQ)
+        LD (IX+1),L
+        LD (IX+2),H
+        LD A,(SEQ+2)
+        LD (IX+3),A
+        LD A,(WAIT)
+        LD (IX+0),A
+        POP DE
+        POP BC
+channels_next:
+        INC E
+        DJNZ channels_loop
+channels_done:
+        POP AF
+        LD (WAIT),A
+        POP AF
+        LD (SEQ+2),A
+        POP HL
+        LD (SEQ),HL
+        XOR A
+        LD (SEQVALID),A
+        LD (SYNCCAPTURE),A
+        JP music_sync_restore

@@ -1,0 +1,135 @@
+; Fixed-resource FM/PSG effects use the same four instance slots.
+; Validate every victim before changing ownership, so acquisition is atomic.
+noise_allocate:
+        LD A,(PCMDESC+2)
+        LD C,5
+        CP 8
+        JR NZ,fixed_base_ready
+        LD C,0
+fixed_base_ready:
+        LD A,C
+        LD (TARGET),A
+        LD A,(PCMDESC+2)
+        CP 7
+        JP Z,tone_group_choose
+        CP 6
+        LD A,(PCMDESC+7)
+        JR NC,noise_mask_ready
+        LD A,(PCMDESC+2)
+        SUB 4
+        RLCA
+        RLCA
+        OR 8
+noise_mask_ready:
+        AND 31
+        RET Z
+        LD (PCMDESC+7),A
+        LD HL,0
+        LD (FREEINST),HL
+        LD IX,$1800
+        LD B,4
+noise_free_instance:
+        LD A,(IX+0)
+        OR A
+        JR NZ,noise_instance_next
+        LD (FREEINST),IX
+noise_instance_next:
+        LD DE,16
+        ADD IX,DE
+        DJNZ noise_free_instance
+        LD A,(PCMDESC+7)
+        LD E,A
+        LD A,(TARGET)
+        LD C,A
+noise_validate:
+        SRL E
+        JR NC,noise_valid_next
+        LD HL,OWNERS
+        LD B,0
+        ADD HL,BC
+        LD A,(HL)
+        OR A
+        JR Z,noise_valid_next
+        CALL fm_instance
+        LD A,(TEMP+7)
+        CP (IX+2)
+        RET C
+        RET Z
+        LD HL,(FREEINST)
+        LD A,H
+        OR L
+        JR NZ,noise_valid_next
+        LD (FREEINST),IX
+noise_valid_next:
+        INC C
+        LD A,E
+        OR A
+        JR NZ,noise_validate
+noise_validated:
+        LD HL,(FREEINST)
+        LD A,H
+        OR L
+        RET Z
+        LD A,(PCMDESC+7)
+        LD E,A
+        LD A,(TARGET)
+        LD C,A
+noise_preempt:
+        SRL E
+        JR NC,noise_preempt_next
+        LD HL,OWNERS
+        LD B,0
+        ADD HL,BC
+        LD A,(HL)
+        OR A
+        JR Z,noise_preempt_next
+        PUSH BC
+        PUSH DE
+        CALL fm_instance
+        CALL fm_release
+        POP DE
+        POP BC
+noise_preempt_next:
+        INC C
+        LD A,E
+        OR A
+        JR NZ,noise_preempt
+noise_take:
+        LD IX,(FREEINST)
+        LD A,(PCMDESC+7)
+        LD (IX+14),A
+        LD A,(TARGET)
+        LD C,A
+        LD A,(IX+14)
+noise_first_channel:
+        RRCA
+        JR C,noise_first_found
+        INC C
+        JR noise_first_channel
+noise_first_found:
+        CALL fm_acquire
+        CALL fm_owner_number
+        LD E,(IX+14)
+        LD A,(TARGET)
+        LD C,A
+noise_claim:
+        SRL E
+        JR NC,noise_claim_next
+        LD H,$1F
+        LD A,C
+        OR $20
+        LD L,A
+        LD (HL),B
+        LD A,L
+        OR $10
+        LD L,A
+        LD (HL),1
+        PUSH DE
+        CALL keyoff
+        POP DE
+noise_claim_next:
+        INC C
+        LD A,E
+        OR A
+        JR NZ,noise_claim
+        RET

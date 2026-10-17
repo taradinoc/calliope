@@ -1,0 +1,95 @@
+; Four authored TL values plus runtime-gain sensitivity mask.
+; Physical music shadows use a 8-byte stride; the mask is at offset 7.
+FMLEVELS EQU $18D8
+TLTEMP EQU $1F62
+level_address:
+        LD A,C
+        ADD A,A
+        ADD A,A
+        ADD A,A
+        ADD A,$D8
+        LD L,A
+        LD H,$18
+        RET
+level_store:
+        PUSH BC
+        LD BC,4
+        LDIR
+        LD A,D
+        CP $18
+        LD A,E
+        JR Z,level_compact_mask
+        OR 24
+level_compact_mask:
+        OR 7
+        LD E,A
+        LD A,(HL)
+        LD (DE),A
+        POP BC
+        RET
+level_restore:
+        CALL level_address
+        EX DE,HL
+        PUSH IX
+        POP HL
+        LD BC,9
+        ADD HL,BC
+        LD C,(IX+0)
+        JR level_store
+level_current:
+        LD A,(CONTEXT)
+        OR A
+        RET NZ
+        CALL level_address
+        JR level_write
+level_op:
+        CALL fetch_slot
+        LD HL,TLTEMP
+        LD B,5
+        CALL fetch_block
+        LD A,(CONTEXT)
+        OR A
+        JR NZ,level_sfx
+        LD A,(NPARTS)
+        OR A
+        JR Z,level_physical
+        PUSH BC
+        LD HL,(CURPART)
+        LD DE,9
+        ADD HL,DE
+        EX DE,HL
+        LD HL,TLTEMP
+        LD BC,5
+        LDIR
+        POP BC
+level_physical:
+        CALL part_blocked
+        JP NZ,decode
+        CALL level_address
+        JR level_copy
+level_sfx:
+        LD HL,PATCH+4
+level_copy:
+        PUSH HL
+        EX DE,HL
+        LD HL,TLTEMP
+        CALL level_store
+        POP HL
+        CALL voice_blocked
+        JP NZ,decode
+        LD A,(CONTEXT)
+        OR A
+        JR NZ,level_output
+        PUSH HL
+        LD HL,DIRTY
+        LD E,C
+        LD D,0
+        ADD HL,DE
+        LD A,(HL)
+        POP HL
+        OR A
+        JP NZ,decode
+level_output:
+        CALL level_write
+        JP decode
+

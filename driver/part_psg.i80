@@ -1,0 +1,52 @@
+; Retain logical PSG writes before ownership filtering. Source operations start
+; with a latch; volume-only rows retain the preceding period/noise control.
+part_psg:
+        PUSH AF
+        LD E,A
+        LD A,(CONTEXT)
+        OR A
+        JR NZ,part_psg_done
+        LD A,(NPARTS)
+        OR A
+        JR Z,part_psg_done
+        PUSH BC
+        LD BC,6
+        LD HL,(CURPART)
+        LD A,(HL)
+        CP 8
+        JR NZ,part_psg_normal
+        BIT 7,E
+        JR Z,part_pair_data
+        LD A,E
+        AND $E0
+        CP $C0
+        JR NZ,part_psg_normal
+        BIT 4,E
+        JR NZ,part_psg_pop
+        LD C,9
+        JR part_psg_store
+part_pair_data:
+        LD A,(PSGCH)
+        CP 7
+        JR NZ,part_psg_normal
+        LD C,10
+        JR part_psg_store
+part_psg_normal:
+        BIT 7,E
+        JR NZ,part_psg_latch
+        INC C
+        JR part_psg_store
+part_psg_latch:
+        BIT 4,E
+        JR Z,part_psg_store
+        INC C
+        INC C
+part_psg_store:
+        LD HL,(CURPART)
+        ADD HL,BC
+        LD (HL),E
+part_psg_pop:
+        POP BC
+part_psg_done:
+        POP AF
+        RET

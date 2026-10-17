@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "songs": [
+    {
+      "id": 1,
+      "name": "melody",
+      "source": "melody232.fur",
+      "voices": [
+        {
+          "channel": "melody",
+          "slot": "fm0"
+        }
+      ],
+      "events": {
+        "1": {
+          "id": 7,
+          "parameter": 42
+        }
+      }
+    }
+  ],
+  "sfx": [
+    {
+      "id": 1,
+      "name": "click",
+      "source": "click.wav"
+    }
+  ]
+}

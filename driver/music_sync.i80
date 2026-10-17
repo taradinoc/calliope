@@ -1,0 +1,69 @@
+; Prepared music register writes share the PCM output frontier.
+; Ownership and mute state cannot change inside a DAC drain: commands are
+; consumed only in main. Cache the check across adjacent same-channel writes.
+SYNCOWNER EQU $1EF5
+SYNCBLOCK EQU $1EF6
+SYNCQHEAD EQU $1EE8
+SYNCQTAIL EQU $1EEA
+SYNCQCOUNT EQU $1EEC
+SYNCCAPTURE EQU $1EED
+SYNCHEADLEFT EQU $1EEE
+SYNCFRONT EQU $1F73
+SYNCLEFT EQU $1F74
+music_sync_ym:
+        PUSH AF
+        LD A,D
+        CP $28
+        LD A,C
+        JR NZ,music_sync_ym_slot
+        LD A,E
+        AND 7
+        CP 3
+        JR C,music_sync_ym_slot
+        DEC A
+music_sync_ym_slot:
+        CALL music_sync_enqueue
+        POP AF
+        RET
+music_sync_psg:
+        JP music_sync_psg_direct
+music_sync_psg_active:
+        PUSH AF
+        PUSH DE
+        LD E,A
+        LD A,(PSGCH)
+        CALL music_sync_enqueue
+        POP DE
+        POP AF
+        SCF
+        RET
+music_sync_prepare:
+        LD A,(SYNCCAPTURE)
+        OR A
+        JP Z,music_sync_prepare_direct
+        LD HL,music_sync_ym
+        LD (ym+1),HL
+        LD HL,music_sync_psg_active
+        LD (music_sync_psg+1),HL
+        JP pcm_service
+
+
+music_sync_arm:
+        DI
+        EXX
+        LD A,C
+        EXX
+        LD B,A
+        LD A,(SYNCFRONT)
+        SUB B
+        LD HL,SYNCLEFT
+        CP (HL)
+        JR C,music_sync_arm_future
+        JR Z,music_sync_arm_future
+        XOR A
+music_sync_arm_future:
+        LD (SYNCHEADLEFT),A
+        INC A
+        LD IYL,A
+        EI
+        RET

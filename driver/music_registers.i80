@@ -1,0 +1,174 @@
+music_sync_enqueue:
+        PUSH HL
+        PUSH AF ; physical channel
+        RST $08
+music_sync_room:
+        LD A,(SYNCQCOUNT)
+        CP 64
+        JR C,music_sync_store
+        CALL music_yield
+        JR music_sync_room
+music_sync_store:
+        LD HL,(SYNCQTAIL)
+        LD A,(SYNCFRONT)
+        LD (HL),A
+        INC HL
+        POP AF
+        LD (HL),A
+        INC HL
+        LD (HL),D
+        INC HL
+        LD (HL),E
+        INC HL
+        LD A,H
+        CP $1B
+        JR C,music_sync_tail
+        LD HL,$1A00
+music_sync_tail:
+        LD (SYNCQTAIL),HL
+        LD HL,SYNCQCOUNT
+        INC (HL)
+        LD A,(HL)
+        CP 1
+        JR NZ,music_sync_enqueued
+        PUSH BC
+        CALL music_sync_arm
+        POP BC
+        RST $08
+music_sync_enqueued:
+        POP HL
+        RET
+; Called with alternate BC/DE/HL active and interrupts disabled.
+music_sync_dac:
+        LD A,(SYNCQCOUNT)
+        OR A
+        RET Z
+        EXX ; work in the main registers; keep the DAC registers valid for IRQs
+        PUSH BC
+        PUSH DE
+        PUSH HL
+        LD A,255
+        LD (SYNCOWNER),A
+        EI
+        NOP
+music_sync_drain:
+        DI
+        ; Do not monopolize a refill that has only published a few bytes.
+        ; Recheck between writes so the producer always retains headroom.
+        EXX
+        LD A,IYH
+        SUB C
+        EXX
+        CP 16
+        JP C,music_sync_low_pcm
+        LD A,(SYNCQCOUNT)
+        OR A
+        JP Z,music_sync_done
+        LD HL,(SYNCQHEAD)
+        LD B,(HL)
+        LD A,(SYNCHEADLEFT)
+        OR A
+        JR Z,music_sync_due
+        EXX
+        LD A,C
+        EXX
+        LD C,A
+        LD A,B
+        SUB C
+        OR A
+        JR Z,music_sync_due
+        LD D,A
+        LD A,(SYNCHEADLEFT)
+        CP D
+        JR C,music_sync_due
+        LD A,D
+        LD (SYNCHEADLEFT),A
+music_sync_future:
+        INC A
+        LD IYL,A
+        JR music_sync_done
+music_sync_due:
+        INC HL
+        LD C,(HL)
+        INC HL
+        LD D,(HL)
+        INC HL
+        LD E,(HL)
+        INC HL
+        LD A,H
+        CP $1B
+        JR C,music_sync_next
+        LD HL,$1A00
+music_sync_next:
+        LD (SYNCQHEAD),HL
+        LD A,(HL)
+        SUB B
+        LD (SYNCHEADLEFT),A
+        LD HL,SYNCQCOUNT
+        DEC (HL)
+        EI
+        LD A,(SYNCOWNER)
+        CP C
+        JR Z,music_sync_owner_cached
+        LD A,C
+        LD (SYNCOWNER),A
+        CALL music_single_check
+        LD (SYNCBLOCK),A
+music_sync_owner_cached:
+        LD A,(SYNCBLOCK)
+        OR A
+        JR NZ,music_sync_written
+        DI
+        LD A,C
+        CP 5
+        JR NC,music_sync_psg_out
+        LD A,D
+        CP $28
+        JR Z,music_sync_port0
+        LD A,C
+        CP 3
+        JR C,music_sync_port0
+        LD A,D
+        LD ($4002),A
+        LD A,E
+        LD ($4003),A
+        JR music_sync_written
+music_sync_port0:
+        LD A,D
+        LD ($4000),A
+        LD A,E
+        LD ($4001),A
+        JR music_sync_written
+music_sync_psg_out:
+        LD A,E
+        LD ($7F11),A
+music_sync_written:
+        EI
+        RST $08
+        JP music_sync_drain
+music_sync_low_pcm:
+        LD IYL,1 ; let the PCM producer run before further register delivery
+music_sync_done:
+        DI
+        POP HL
+        POP DE
+        POP BC
+        EXX
+        RET
+music_sync_mark:
+        LD A,(OUTW)
+        LD (SYNCFRONT),A
+        LD B,A
+        DI
+        EXX
+        LD A,C
+        EXX
+        EI
+        LD C,A
+        LD A,B
+        SUB C
+        LD (SYNCLEFT),A
+        RET
+music_sync_psg_direct:
+        OR A
+        RET

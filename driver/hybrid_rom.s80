@@ -1,0 +1,891 @@
+; Calliope hybrid ROM PCM: 68000 sequences; Z80 fetches PCM and writes chips.
+; No musical opcodes or ownership decisions execute here.
+PCM_TIMER_A EQU 1020
+HOSTW EQU $1E87
+HOSTSEQ EQU $1E8B
+SHARED EQU $1D00
+PROTECT EQU SHARED+6
+FAULT EQU SHARED+5
+PCMFAULT EQU SHARED+26
+CW EQU $1E80
+CG EQU $1E81
+CP EQU $1E82
+PSTEP EQU $1E83
+PLAYHI EQU $1E89
+PLAYPTR EQU $1ED0
+PLAYLEFT EQU $1ED2
+; Generator scratch is separate from the playback consumer and local producer.
+OUTW EQU HOSTW
+GENHI EQU $1E8A
+RPTR EQU $1E90
+BANK EQU $1E85
+BANKHI EQU $1E86
+LIMIT EQU $1E98
+HAVENEXT EQU $1E9A
+GENNEXT EQU $1E9B
+GENKNOWN EQU $1E9D
+SRC EQU $1EA0
+ACTIVE EQU SRC+12
+CHUNK EQU $1EB0
+SEGMENT EQU $1EB1
+GENTIME EQU $1EB2
+        ORG 0
+        DI
+        JP init
+        BLOCK $08-$
+dac_service:
+        RET ; patched to DI after setup
+        EX AF,AF'
+        EXX
+        LD A,(HL)
+        AND 3
+        JR NZ,dac_flags
+        EXX
+        EX AF,AF'
+        RET
+        BLOCK $38-$
+vint:
+        ; No music tick bookkeeping. Poll once, then wait out the IRQ line.
+        PUSH AF
+        RST $08
+        PUSH BC
+        LD B,3
+vint_hold:
+        DJNZ vint_hold
+        POP BC
+        POP AF
+        EI
+        RETI
+dac_flags:
+        CP 2
+        JR NC,dac_group
+        INC IXL
+        LD (HL),$27
+        LD A,$1F
+        LD (DE),A
+        LD A,IYH
+        CP B
+        JR NZ,dac_read
+        LD A,IYL
+        CP C
+        JR Z,dac_empty
+dac_read:
+        LD A,(BC)
+        INC C
+        JR NZ,dac_output
+        PUSH AF
+        LD A,B
+        INC A
+        AND 3
+        OR $18
+        LD B,A
+        LD A,(PLAYHI)
+        INC A
+        LD (PLAYHI),A
+        POP AF
+dac_output:
+        LD (HL),$2A
+        LD (DE),A
+dac_return:
+        EXX
+        EX AF,AF'
+        RET
+dac_empty:
+        CALL refresh_producer
+        LD A,IYH
+        CP B
+        JR NZ,dac_read
+        LD A,IYL
+        CP C
+        JR NZ,dac_read
+        LD A,1
+        LD (PCMFAULT),A
+        LD A,$80
+        JR dac_output
+; Timer B is exactly four output periods. Its flag cannot coalesce under the
+; declared short-halt workload. Recover a coalesced A flag as a bounded burst,
+; maintaining sample count instead of gradually lowering PCM pitch.
+dac_group:
+        LD A,IXL
+        NEG
+        ADD A,4
+        LD IXL,A
+        LD (HL),$27
+        LD A,$3F
+        LD (DE),A
+        LD A,IXL
+        OR A
+        JR Z,dac_return
+        CP 2
+        JR C,dac_group_byte
+        PUSH HL
+        LD HL,SHARED+27
+        INC (HL) ; recovery groups, diagnostic only (wraps)
+        POP HL
+dac_group_byte:
+        LD A,IYH
+        CP B
+        JR NZ,dac_group_read
+        LD A,IYL
+        CP C
+        JR Z,dac_group_empty
+dac_group_read:
+        LD A,(BC)
+        INC C
+        JR NZ,dac_group_output
+        PUSH AF
+        LD A,B
+        INC A
+        AND 3
+        OR $18
+        LD B,A
+        LD A,(PLAYHI)
+        INC A
+        LD (PLAYHI),A
+        POP AF
+dac_group_output:
+        LD (HL),$2A
+        LD (DE),A
+        DEC IXL
+        JR NZ,dac_group_byte
+        JR dac_return
+dac_group_empty:
+        CALL refresh_producer
+        LD A,IYH
+        CP B
+        JR NZ,dac_group_read
+        LD A,IYL
+        CP C
+        JR NZ,dac_group_read
+        LD A,1
+        LD (PCMFAULT),A
+        LD A,$80
+        JR dac_group_output
+; A burst of chip records can outlive the cached producer pointer. Reload on
+; apparent empty before diagnosing an underrun. Save DE: its alternate value
+; is the DAC data port, not foreground scratch. Host uploads use the sequence;
+; this fetcher updates both producer bytes and IY before its next DAC yield.
+refresh_producer:
+        PUSH DE
+refresh_producer_retry:
+        LD A,(HOSTSEQ)
+        LD E,A
+        LD IY,(HOSTW)
+        LD A,(HOSTSEQ)
+        CP E
+        JR NZ,refresh_producer_retry
+        POP DE
+        RET
+; Interrupts stay disabled outside the initial setup. The DAC clock itself
+; drives sequencing time; VBlank work is unnecessary in this prototype.
+init:
+        LD SP,$2000
+        IM 1
+        LD HL,SHARED+16
+init_wait:
+        LD A,(HL)
+        INC HL
+        OR (HL)
+        INC HL
+        OR (HL)
+        LD HL,SHARED+16
+        JR Z,init_wait
+        LD HL,$0FF8
+        LD B,8
+init_guard1:
+        LD (HL),$A5
+        INC HL
+        DJNZ init_guard1
+        LD HL,$1F78
+        LD B,8
+init_guard2:
+        LD (HL),$A5
+        INC HL
+        DJNZ init_guard2
+        XOR A
+        LD (CG),A
+        LD (CP),A
+        LD (PSTEP),A
+        LD (PLAYHI),A
+        LD (FAULT),A
+        LD (PCMFAULT),A
+        LD HL,$4000
+        LD DE,$4001
+        LD BC,$1800
+        EXX
+        LD HL,$1800
+        LD (HL),$80
+        LD DE,$1801
+        LD BC,895
+        LDIR
+        LD DE,$1B80
+        LD (OUTW),DE
+        LD IY,$1B80
+        LD A,3
+        LD (GENHI),A
+        LD IX,0
+        ; Silence all music resources and set the fixed sample clock.
+        LD D,$28
+        LD E,0
+        CALL ym0
+        LD E,1
+        CALL ym0
+        LD E,2
+        CALL ym0
+        LD E,4
+        CALL ym0
+        LD E,5
+        CALL ym0
+        LD A,$9F
+        LD ($7F11),A
+        LD A,$BF
+        LD ($7F11),A
+        LD A,$DF
+        LD ($7F11),A
+        LD A,$FF
+        LD ($7F11),A
+        LD D,$24
+        LD E,PCM_TIMER_A/4
+        CALL ym0
+        LD D,$25
+        LD E,PCM_TIMER_A & 3
+        CALL ym0
+        LD D,$2B
+        LD E,$80
+        CALL ym0
+        LD D,$26
+        LD E,$FF
+        CALL ym0
+        LD D,$27
+        LD E,$3F
+        CALL ym0
+        LD A,$F3
+        LD (dac_service),A
+        LD A,$80
+        LD (SHARED),A
+        CALL status_due
+main:
+        RST $08
+        CALL generate_due
+        RST $08
+        CALL fill
+        RST $08
+        CALL play_step
+        RST $08
+        CALL status_due
+        JP main
+; D register / E value. Address and data are indivisible with DAC polling.
+ym0:
+        RST $08
+ym0_ready:
+        LD A,($4000)
+        AND $80
+        JR NZ,ym0_ready
+        LD A,D
+        LD ($4000),A
+        LD A,E
+        LD ($4001),A
+        RST $08
+        RET
+ym1:
+        RST $08
+ym1_ready:
+        LD A,($4000)
+        AND $80
+        JR NZ,ym1_ready
+        LD A,D
+        LD ($4002),A
+        LD A,E
+        LD ($4003),A
+        RST $08
+        RET
+local_page:
+        AND 7
+        ADD A,$10
+        LD H,A
+        LD L,0
+        RET
+map:
+        RST $08
+        PUSH BC
+        PUSH DE
+        PUSH HL
+        LD A,(RPTR+1)
+        RLCA
+        LD A,(RPTR+2)
+        RLA
+        LD E,A
+        LD A,(RPTR+2)
+        RLCA
+        AND 1
+        LD D,A
+        RST $08
+        LD A,(BANKHI)
+        CP D
+        JR NZ,map_new
+        LD A,(BANK)
+        CP E
+        JR Z,map_done
+map_new:
+        RST $08
+        LD A,E
+        LD (BANK),A
+        LD A,D
+        LD (BANKHI),A
+        LD HL,$6000
+        LD B,4
+map_bits:
+        LD A,E
+        LD (HL),A
+        RRCA
+        LD (HL),A
+        RRCA
+        LD E,A
+        RST $08
+        DJNZ map_bits
+        LD (HL),D
+map_done:
+        RST $08
+        POP HL
+        POP DE
+        POP BC
+        RET
+generate_due:
+        LD A,(OUTW)
+        LD L,A
+        LD A,(GENHI)
+        LD H,A
+        LD (GENTIME),HL
+        RST $08
+        LD A,(CG)
+        LD B,A
+        RST $08
+        LD A,(CW)
+        CP B
+        JR Z,generate_unknown
+        LD A,B
+        CALL local_page
+        INC HL
+        LD A,(HL)
+        LD (CHUNK),A
+        INC HL
+        LD E,(HL)
+        INC HL
+        LD D,(HL)
+        LD (LIMIT),DE
+        RST $08
+        LD A,1
+        LD (HAVENEXT),A
+        RST $08
+        LD HL,(GENTIME)
+        OR A
+        SBC HL,DE
+        BIT 7,H
+        RET NZ
+        RST $08
+        LD A,(CHUNK)
+        OR A
+        JR Z,generate_advance
+        CP 2
+        JR Z,generate_stop
+        LD A,(CG)
+        CALL local_page
+        LD L,12
+        LD DE,SRC
+        LD BC,12
+        LDI
+        LDI
+        LDI
+        LDI
+        RST $08
+        LDI
+        LDI
+        LDI
+        LDI
+        RST $08
+        LDI
+        LDI
+        LDI
+        LDI
+        LD A,1
+        LD (ACTIVE),A
+        JR generate_advance
+generate_stop:
+        XOR A
+        LD (ACTIVE),A
+generate_advance:
+        LD A,(CG)
+        CALL local_page
+        LD L,24
+        LD E,(HL)
+        INC HL
+        LD D,(HL)
+        LD (GENNEXT),DE
+        INC HL
+        LD A,(HL)
+        LD (GENKNOWN),A
+        RST $08
+        LD HL,CG
+        INC (HL)
+        RST $08
+        JP generate_due
+generate_unknown:
+        LD HL,(GENNEXT)
+        LD (LIMIT),HL
+        LD A,(GENKNOWN)
+        LD (HAVENEXT),A
+        RET
+; One bounded refill. Leave headroom for DMA and expensive FM installations.
+fill:
+        LD A,(HAVENEXT)
+        OR A
+        RET Z
+        LD A,(PROTECT)
+        OR A
+        RET NZ
+        LD HL,(OUTW)
+        EXX
+        LD A,C
+        EXX
+        LD E,A
+        LD A,(PLAYHI)
+        LD D,A
+        LD A,(GENHI)
+        LD H,A
+        OR A
+        SBC HL,DE
+        LD DE,896
+        OR A
+        SBC HL,DE
+        RET NC
+        LD HL,(GENTIME)
+        LD DE,(LIMIT)
+        EX DE,HL
+        OR A
+        SBC HL,DE
+        BIT 7,H
+        RET NZ
+        LD A,H
+        OR A
+        LD A,128
+        JR NZ,fill_count
+        LD A,L
+        CP 128
+        JR C,fill_count
+        LD A,128
+fill_count:
+        OR A
+        RET Z
+        LD C,A
+        LD A,(OUTW)
+        NEG
+        JR Z,fill_fifo_ready
+        CP C
+        JR NC,fill_fifo_ready
+        LD C,A
+fill_fifo_ready:
+        RST $08
+        LD A,(ACTIVE)
+        OR A
+        JP Z,fill_silence
+        LD HL,SRC+3
+        LD A,(HL)
+        INC HL
+        OR (HL)
+        INC HL
+        OR (HL)
+        JR NZ,fill_source
+        LD HL,SRC+9
+        LD A,(HL)
+        INC HL
+        OR (HL)
+        INC HL
+        OR (HL)
+        JR Z,fill_end
+        LD HL,SRC+6
+        LD DE,SRC
+        PUSH BC
+        LD BC,6
+        LDIR
+        POP BC
+        JR fill_source
+fill_end:
+        XOR A
+        LD (ACTIVE),A
+        JP fill_silence
+fill_source:
+        LD HL,(SRC+3)
+        LD A,(SRC+5)
+        OR H
+        JR NZ,fill_bank
+        LD A,L
+        CP C
+        JR NC,fill_bank
+        LD C,A
+fill_bank:
+        LD HL,(SRC)
+        LD A,H
+        AND $7F
+        CP $7F
+        JR NZ,fill_copy_setup
+        LD A,L
+        NEG
+        JR Z,fill_copy_setup
+        CP C
+        JR NC,fill_copy_setup
+        LD C,A
+fill_copy_setup:
+        LD A,C
+        LD (SEGMENT),A
+        LD (RPTR),HL
+        LD A,(SRC+2)
+        LD (RPTR+2),A
+        CALL map
+        LD HL,(SRC)
+        SET 7,H
+        LD DE,(OUTW)
+        LD B,0
+fill_copy:
+        RST $08
+        LD A,(PROTECT)
+        OR A
+        JR NZ,fill_copy
+        LD A,C
+        CP 8
+        JR C,fill_tail
+        LDI
+        LDI
+        LDI
+        LDI
+        LDI
+        LDI
+        LDI
+        LDI
+        CALL fill_publish
+        JR fill_copy
+fill_tail:
+        OR A
+        JR Z,fill_done
+        LDI
+        CALL fill_publish
+        JR fill_copy
+fill_done:
+        RST $08
+        LD A,E
+        OR A
+        JR NZ,fill_no_wrap
+        LD A,(GENHI)
+        INC A
+        LD (GENHI),A
+fill_no_wrap:
+        LD A,(SEGMENT)
+        LD C,A
+        LD B,0
+        LD HL,(SRC)
+        ADD HL,BC
+        LD (SRC),HL
+        JR NC,fill_remaining
+        LD HL,SRC+2
+        INC (HL)
+fill_remaining:
+        LD HL,(SRC+3)
+        OR A
+        SBC HL,BC
+        LD (SRC+3),HL
+        RET NC
+        LD HL,SRC+5
+        DEC (HL)
+        RET
+; Resident FIFO producer is published before yielding to DAC service.
+fill_publish:
+        LD A,D
+        AND 3
+        OR $18
+        LD D,A
+        LD (OUTW),DE
+        LD IYL,E
+        LD IYH,D
+        RET
+fill_silence:
+        LD A,C
+        LD (SEGMENT),A
+        LD B,C
+        LD DE,(OUTW)
+fill_zero:
+        LD A,B
+        CP 8
+        JR C,fill_zero_tail
+        LD A,$80
+        LD (DE),A
+        INC DE
+        LD (DE),A
+        INC DE
+        LD (DE),A
+        INC DE
+        LD (DE),A
+        INC DE
+        LD (DE),A
+        INC DE
+        LD (DE),A
+        INC DE
+        LD (DE),A
+        INC DE
+        LD (DE),A
+        INC DE
+        CALL fill_publish
+        RST $08
+        LD A,B
+        SUB 8
+        LD B,A
+        JR fill_zero
+fill_zero_tail:
+        OR A
+        JR Z,fill_zero_done
+fill_zero_byte:
+        LD A,$80
+        LD (DE),A
+        INC DE
+        CALL fill_publish
+        RST $08
+        DJNZ fill_zero_byte
+fill_zero_done:
+        LD A,E
+        OR A
+        RET NZ
+        LD A,(GENHI)
+        INC A
+        LD (GENHI),A
+        RET
+; Timestamped playback: up to eight records per pass, no ownership lookup.
+play_step:
+        LD A,(PSTEP)
+        OR A
+        JR NZ,play_fast
+        RST $08
+        LD A,(CP)
+        LD B,A
+        LD A,(CW)
+        CP B
+        RET Z
+        LD A,B
+        CALL local_page
+        LD E,(HL)
+        PUSH HL
+        RST $08
+        INC HL
+        INC HL
+        LD C,(HL)
+        INC HL
+        LD B,(HL)
+        RST $08
+        EXX
+        LD A,C
+        EXX
+        LD L,A
+        LD A,(PLAYHI)
+        LD H,A
+        OR A
+        SBC HL,BC
+        BIT 7,H
+        POP HL
+        RET NZ
+        RST $08
+        CALL play_header
+        LD A,(HL)
+        LD (PLAYLEFT),A
+        LD L,28
+        LD (PLAYPTR),HL
+        LD A,1
+        LD (PSTEP),A
+play_fast:
+        LD A,(PLAYLEFT)
+        OR A
+        JP Z,play_done
+        LD B,A
+        LD C,8
+        LD HL,(PLAYPTR)
+play_burst:
+        RST $08
+        LD A,(HL)
+        INC HL
+        LD D,(HL)
+        INC HL
+        LD E,(HL)
+        INC HL
+        RST $08
+        CP 1
+        JR Z,play_write0
+        CP 2
+        JR Z,play_write1
+        CP 3
+        JR Z,play_writepsg
+        CP 4
+        JR Z,play_patch
+        LD A,2
+        LD (FAULT),A
+        JR play_save
+play_patch:
+        CALL install_patch
+        JR play_written
+play_write0:
+        CALL ym0_ready
+        JR play_written
+play_write1:
+        CALL ym1_ready
+        JR play_written
+play_writepsg:
+        LD A,(PROTECT)
+        OR A
+        JR NZ,play_defer
+        LD A,D
+        LD ($7F11),A
+play_written:
+        DEC B
+        JR Z,play_save
+        DEC C
+        JR NZ,play_burst
+play_save:
+        LD (PLAYPTR),HL
+        LD A,B
+        LD (PLAYLEFT),A
+        RET
+play_defer:
+        DEC HL
+        DEC HL
+        DEC HL
+        JR play_save
+play_done:
+        XOR A
+        LD (PSTEP),A
+        LD HL,CP
+        INC (HL)
+        RET
+play_header:
+        LD A,(SHARED+33)
+        INC A
+        LD (SHARED+33),A
+        RST $08
+        PUSH HL
+        PUSH DE
+        LD L,4
+        LD DE,SHARED+8
+        LD BC,6
+        LDI
+        LDI
+        LDI
+        RST $08
+        LDI
+        LDI
+        LDI
+        LD A,(HL)
+        LD (SHARED+14),A
+        INC HL
+        LD A,(HL)
+        LD (SHARED+22),A
+        RST $08
+        OR A
+        JR Z,play_header_end
+        LD HL,(SHARED+8)
+        LD (SHARED+20),HL
+play_header_end:
+        LD A,(SHARED+33)
+        INC A
+        LD (SHARED+33),A
+        RST $08
+        POP DE
+        POP HL
+        RET
+status_due:
+        ; Low-first publication. The 68000 rejects a wrapped low byte paired
+        ; with the old high byte and retries after allowing Z80 progress.
+        EXX
+        LD A,C
+        EXX
+        LD L,A
+        LD A,(PLAYHI)
+        LD H,A
+        LD (SHARED+34),HL
+        RET
+ ; D: hardware slot, E: resident patch ID. Preserve the packet cursor/count.
+; The four operator registers are consecutive in steps of four, including TL.
+; Poll once per write; the intervening resident work lets YM BUSY expire.
+install_patch:
+        PUSH HL
+        PUSH BC
+        LD A,D
+        CP 3
+        JR C,patch_port0
+        SUB 3
+        ADD A,$30
+        LD D,A
+        LD L,E
+        LD H,0
+        ADD HL,HL
+        ADD HL,HL
+        ADD HL,HL
+        ADD HL,HL
+        ADD HL,HL
+        LD BC,$0800
+        ADD HL,BC
+        LD B,28
+patch_loop1:
+        LD E,(HL)
+        INC HL
+        CALL ym1_ready
+        LD A,D
+        ADD A,4
+        LD D,A
+        DJNZ patch_loop1
+        LD A,D
+        ADD A,$10
+        LD D,A
+        LD E,(HL)
+        INC HL
+        CALL ym1_ready
+        LD A,D
+        ADD A,4
+        LD D,A
+        LD E,(HL)
+        CALL ym1_ready
+        JR patch_return
+patch_port0:
+        ADD A,$30
+        LD D,A
+        LD L,E
+        LD H,0
+        ADD HL,HL
+        ADD HL,HL
+        ADD HL,HL
+        ADD HL,HL
+        ADD HL,HL
+        LD BC,$0800
+        ADD HL,BC
+        LD B,28
+patch_loop0:
+        LD E,(HL)
+        INC HL
+        CALL ym0_ready
+        LD A,D
+        ADD A,4
+        LD D,A
+        DJNZ patch_loop0
+        LD A,D
+        ADD A,$10
+        LD D,A
+        LD E,(HL)
+        INC HL
+        CALL ym0_ready
+        LD A,D
+        ADD A,4
+        LD D,A
+        LD E,(HL)
+        CALL ym0_ready
+patch_return:
+        POP BC
+        POP HL
+        RET
+code_end:
+        IF $ > $0800
+        ERROR "Hybrid code overlaps resident patches"
+        ENDIF
+        BLOCK $2000-$

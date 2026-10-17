@@ -1,0 +1,201 @@
+; Logical state: slot, group mask16, enabled, patch, FM frequency16/gate.
+; PSG uses offsets 6..8 for latch/data/volume instead.
+; 16 bytes per voice leaves room for future effect state; 16 resident voices.
+PARTS   EQU $1B00
+        IF PARTS & $FF
+        ERROR "Logical voice state must be page aligned"
+        ENDIF
+NPARTS  EQU $1F1A
+CURPART EQU $1F1B
+PARTBLOCK EQU $1F1D
+SWREQ   EQU $1F1E
+SWMASK  EQU $1F40
+SWMARK  EQU $1F44
+ROWMARK EQU $1F46
+parts_load:
+        XOR A
+        LD (PARTBLOCK),A
+        LD (SWREQ),A
+        LD HL,TEMP+4
+        LD B,3
+parts_pointer:
+        CALL read
+        LD (HL),A
+        INC HL
+        DJNZ parts_pointer
+        CALL read
+        LD (SONGSYNC),A
+        AND 31
+        LD (NPARTS),A
+        CALL clock_load
+        OR A
+        RET Z
+        LD B,A
+        LD HL,TEMP+4
+        CALL relative
+        LD IX,PARTS
+parts_load_voice:
+        PUSH IX
+        POP HL
+        LD C,4
+parts_load_byte:
+        CALL read
+        LD (HL),A
+        INC HL
+        DEC C
+        JR NZ,parts_load_byte
+        LD (HL),0
+        INC HL
+        LD (HL),255
+        INC HL
+        LD (HL),0
+        INC HL
+        LD (HL),0
+        CALL music_yield
+        LD (IX+14),0
+        LD DE,16
+        ADD IX,DE
+        DJNZ parts_load_voice
+        JP channels_schedule
+part_bind:
+        ; A is the implicit channel ID; PARTS is page aligned.
+        RLCA
+        RLCA
+        RLCA
+        RLCA
+        LD L,A
+        LD H,PARTS/256
+        LD (CURPART),HL
+        LD E,(HL)
+        LD C,E
+        LD A,E
+        LD (fetch_music_slot+1),A
+        INC HL
+        INC HL
+        INC HL
+        LD A,(HL)
+        XOR 1
+        LD (PARTBLOCK),A
+        RET NZ
+        LD A,E
+        CP 5
+        RET NC
+        INC HL
+        LD A,(HL)
+        LD HL,MUSPATCH
+        LD D,0
+        ADD HL,DE
+        LD (HL),A
+        RET
+part_patch:
+        LD A,(NPARTS)
+        OR A
+        RET Z
+        LD HL,(CURPART)
+        INC HL
+        INC HL
+        INC HL
+        INC HL
+        LD (HL),B
+        RET
+part_blocked:
+        LD A,(CONTEXT)
+        OR A
+        JR NZ,part_unblocked
+        LD A,(PARTBLOCK)
+        OR A
+        RET
+part_unblocked:
+        XOR A
+        RET
+voice_blocked:
+        CALL part_blocked
+        RET NZ
+        JP music_blocked
+parts_request:
+        LD HL,(TEMP+4)
+        LD (SWMASK),HL
+        LD HL,(TEMP+6)
+        LD (SWMARK),HL
+        LD A,(TEMP+1)
+        LD (SWREQ),A
+        RRCA
+        JR C,parts_apply
+        RET
+part_boundary:
+        CALL fetch
+        PUSH AF
+        CALL fetch
+        LD E,A
+        CALL fetch
+        LD D,A
+        LD (ROWMARK),DE
+        POP AF
+        PUSH AF
+        CALL tempo_due
+        POP AF
+        CALL parts_due
+        JP decode
+parts_due:
+        LD HL,SWREQ
+        AND (HL)
+        RET Z
+        BIT 4,(HL)
+        JR Z,parts_apply
+        LD HL,(SWMARK)
+        LD DE,(ROWMARK)
+        ; The boundary AND above already cleared carry; BIT/loads preserve it.
+        SBC HL,DE
+        RET NZ
+parts_apply:
+        XOR A
+        LD (SWREQ),A
+        LD A,(NPARTS)
+        OR A
+        RET Z
+        LD B,A
+        LD DE,(SWMASK)
+        LD IX,PARTS
+parts_apply_voice:
+        RST $08
+        LD A,E
+        AND 1
+        LD C,A
+        LD A,(IX+3)
+        XOR C
+        JR Z,parts_apply_next
+        LD (IX+3),C
+        PUSH BC
+        PUSH DE
+        LD C,(IX+0)
+        LD A,C
+        CP 9
+        JR Z,parts_cancel_pcm
+        LD E,C
+        LD D,0
+        LD HL,DIRTY
+        ADD HL,DE
+        LD (HL),1
+        LD HL,OWNERS
+        ADD HL,DE
+        LD A,(HL)
+        OR A
+        CALL Z,keyoff
+        JR parts_changed
+parts_cancel_pcm:
+        PUSH IX
+        CALL pcm_cancel_music
+        POP IX
+parts_changed:
+        CALL music_yield
+        POP DE
+        POP BC
+parts_apply_next:
+        SRL D
+        RR E
+        PUSH DE
+        LD DE,16
+        ADD IX,DE
+        POP DE
+        DJNZ parts_apply_voice
+        RET

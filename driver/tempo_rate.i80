@@ -1,0 +1,39 @@
+; Round authored fifth-Hz * 8.8 scale to fifth-Hz. A:HL holds a 24-bit product.
+; DAC polls inside the multiply keep the computation bounded between polls.
+tempo_rate:
+        LD DE,(MUSICHZ)
+        LD A,(TEMPOSCALE)
+        LD C,A
+        LD B,8
+        LD HL,0
+        XOR A
+tempo_multiply:
+        PUSH AF
+        RST $08
+        POP AF
+        ADD HL,HL
+        RLA
+        SLA C
+        JR NC,tempo_product
+        ADD HL,DE
+        ADC A,0
+tempo_product:
+        DJNZ tempo_multiply
+        BIT 7,L
+        JR Z,tempo_rounded
+        INC H
+        JR NZ,tempo_rounded
+        INC A
+tempo_rounded:
+        LD L,H
+        LD H,A
+        LD A,(TEMPOSCALE+1)
+        OR A
+        JR Z,tempo_store
+tempo_whole:
+        ADD HL,DE
+        DEC A
+        JR NZ,tempo_whole
+tempo_store:
+        LD (SCALEDHZ),HL
+        RET

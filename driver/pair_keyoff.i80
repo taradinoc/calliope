@@ -1,0 +1,19 @@
+; Stealing/muting tone 3 must silence the music noise it clocks.
+; A separately owned noise SFX remains untouched.
+pair_keyoff:
+        LD A,C
+        CP 7
+        JP NZ,psg_keyoff
+        LD A,(MUSICNOISE)
+        AND 3
+        CP 3
+        JP NZ,psg_keyoff
+        LD A,(OWNERS+8)
+        OR A
+        JP NZ,psg_keyoff
+        LD A,1
+        LD (DIRTY+8),A
+        INC C
+        CALL psg_keyoff
+        DEC C
+        JP psg_keyoff

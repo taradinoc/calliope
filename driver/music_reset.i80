@@ -1,0 +1,18 @@
+music_sync_reset:
+        PUSH AF
+        DI
+        XOR A
+        LD HL,$1A00
+        LD (SYNCQHEAD),HL
+        LD (SYNCQTAIL),HL
+        LD (SYNCQCOUNT),A
+        LD (SYNCCAPTURE),A
+        LD IYL,A
+        CALL music_sync_restore
+        EI
+        POP AF
+        RET
+
+music_sync_begin:
+        CALL music_sync_mark
+        JP decode

@@ -1,0 +1,10 @@
+; Read descriptor bytes 16..23 after the music clock fields.
+steal_order_load:
+        LD HL,STEALORDER
+        LD B,8
+steal_order_byte:
+        CALL read
+        LD (HL),A
+        INC HL
+        DJNZ steal_order_byte
+        RET
