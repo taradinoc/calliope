@@ -1795,6 +1795,8 @@ def compile_bank(
                 )
                 + steal_ranks
             )
+    if timer == 1020 and len(patches) > 63:
+        raise FormatError("hybrid bank exceeds 63 resident FM patches")
     patchaddr = pack.add(b"".join(patches) if patches else bytes(32))
     songaddr = pack.add(b"".join(songs))
     descriptors = []

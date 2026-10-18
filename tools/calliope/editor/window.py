@@ -202,6 +202,14 @@ class EditorWindow(QMainWindow):
         controls.addWidget(b)
         self.preview_label = QLabel("Preview stopped")
         pl.addWidget(self.preview_label)
+        self.cpu_load = QLabel("68000 load: —")
+        self.cpu_load.setToolTip(
+            "Emulated 68000 cycles outside the editor player's VBlank wait, "
+            "as a percentage of the PAL/NTSC frame budget. Averaged over six frames. "
+            "Includes adapter commands, clp_update, and player telemetry; excludes "
+            "the VBlank wait and interrupts during that wait. This is not host CPU usage."
+        )
+        pl.addWidget(self.cpu_load)
         self.progress_label = QLabel()
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 0)
@@ -869,6 +877,7 @@ class EditorWindow(QMainWindow):
             self.player = None
             self.audio.stop()
             self.preview_label.setText("Preview stopped")
+            self.cpu_load.setText("68000 load: —")
         if process.request["action"] != "preview" or self.player is None:
             self.busy = False
         if not self.busy:
@@ -1045,6 +1054,10 @@ class EditorWindow(QMainWindow):
 
     def show_status(self, status):
         self.last_status = status
+        load = status.get("m68k_load")
+        self.cpu_load.setText(
+            f"68000 load: {load:.1f}%" if load is not None else "68000 load: unavailable"
+        )
         labels = ["FM1", "FM2", "FM3", "FM4", "FM5", "PSG1", "PSG2", "PSG3", "Noise"]
         owners = "  ·  ".join(
             f"{name}: " + (f"SFX {owner}" if owner else "music / free")
@@ -1088,6 +1101,7 @@ class EditorWindow(QMainWindow):
         self.player_revision = None
         self.player_profile = None
         self.preview_label.setText("Preview stopped")
+        self.cpu_load.setText("68000 load: —")
 
     def check_sources(self):
         stats = {}

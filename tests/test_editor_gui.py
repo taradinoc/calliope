@@ -27,6 +27,20 @@ class EditorGui(unittest.TestCase):
         self.window.json.document().setModified(False)
         self.window.close();self.app.processEvents()
 
+    def test_cpu_load_display_and_stop(self):
+        status = dict(owners=[0]*9, effects=[], pcm_owner=0, tick=0,
+                      fault=0, underruns=0, ack=0, queued=False, m68k_load=12.34)
+        self.window.show_status(status)
+        self.assertEqual(self.window.cpu_load.text(), '68000 load: 12.3%')
+        status['m68k_load'] = 0
+        self.window.show_status(status)
+        self.assertEqual(self.window.cpu_load.text(), '68000 load: 0.0%')
+        del status['m68k_load']
+        self.window.show_status(status)
+        self.assertEqual(self.window.cpu_load.text(), '68000 load: unavailable')
+        self.window.stop_preview()
+        self.assertEqual(self.window.cpu_load.text(), '68000 load: —')
+
     def test_json_and_forms_share_history(self):
         value={'version':1,'songs':[{'id':1,'name':'song','source':'missing.fur','voices':[]}],'extension':{'a':1}}
         self.window.json.setPlainText(json.dumps(value));self.assertTrue(self.window.apply_json())

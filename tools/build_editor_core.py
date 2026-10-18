@@ -30,6 +30,6 @@ def main():
     with zipfile.ZipFile(a.output/'genesis-plus-gx-source.zip','a',zipfile.ZIP_DEFLATED) as archive:
         for f in (ROOT/'editor/core').iterdir():archive.write(f,'calliope-core-build/'+f.name)
         archive.write(Path(__file__),'calliope-core-build/build_editor_core.py')
-    (a.output/'core.json').write_text(json.dumps({'upstream':'https://github.com/libretro/Genesis-Plus-GX','revision':revision,'sha256':hashlib.sha256(target.read_bytes()).hexdigest(),'modifications':'Read-only clp_editor_zram export; Calliope CMake build; see bundled source archive.'},indent=2)+'\n')
+    (a.output/'core.json').write_text(json.dumps({'upstream':'https://github.com/libretro/Genesis-Plus-GX','revision':revision,'sha256':hashlib.sha256(target.read_bytes()).hexdigest(),'modifications':'Read-only Z80 RAM export and observational 68000 cycle profiler; Calliope CMake build; see bundled source archive.'},indent=2)+'\n')
 
 if __name__=='__main__':main()

@@ -1,6 +1,6 @@
 {
   "upstream": "https://github.com/libretro/Genesis-Plus-GX",
   "revision": "393f70cd64c7334564c19a424c383f53986c13f4",
-  "sha256": "48e9627914cabc3c775844ab48bb21f68bca312d2a000e2fc7ece476c46b8b00",
-  "modifications": "Read-only clp_editor_zram export; Calliope CMake build; see bundled source archive."
+  "sha256": "dda54d86cc25e0c8d5a1bc55314e9fae59e2baef35280898c39de6f2e1b9d988",
+  "modifications": "Read-only Z80 RAM export and observational 68000 cycle profiler; Calliope CMake build; see bundled source archive."
 }

@@ -126,7 +126,7 @@ static void tone_groups(void)
 static void lfo(void)
 {
     static const u8 stream[]={0x39,8,0,1,0x39,0,255};
-    reset();pc=4000;memcpy(data+4000,stream,sizeof(stream));recordCount=0;decode(0);
+    reset();selectedVoice=255;pc=4000;memcpy(data+4000,stream,sizeof(stream));recordCount=0;decode(0);
     assert(has(0x22,8) && !localFault);recordCount=0;decode(0);assert(has(0x22,0) && !localFault);
 }
 static void panning(void)
@@ -447,8 +447,19 @@ static void elapsed_position(void)
 }
 #include "tempo_test.h"
 #include "start_generation_test.h"
+static void resident_patch_limits(void)
+{
+    u8 bank[32] = {0};
+    put24(bank + 16, 32);
+    bank[8] = 26; assert(patchTableValid(bank, 32 + 26 * 32));
+    bank[8] = 63; assert(patchTableValid(bank, 32 + 63 * 32));
+    assert(!patchTableValid(bank, 32 + 63 * 32 - 1));
+    bank[8] = 64; assert(!patchTableValid(bank, 32 + 64 * 32));
+    assert(0x800 + CLH_PATCH_LIMIT * 32 <= 0xff8);
+}
 int main(int argc,char **argv)
 {
+    resident_patch_limits();
     assert(argc==2);elapsed_position();tempo_controls();operator_masks();ownership();immediate_parts();multi_psg();multi_fm();tone_groups();lfo();panning();pcm();pcmPriorities();packets();events_and_limits();music_silence();authored_bank(argv[1]);
     tempo_api_tests();
     start_generation_tests();

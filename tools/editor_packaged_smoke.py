@@ -42,14 +42,17 @@ def main():
     parser.add_argument('executable',type=Path)
     parser.add_argument('--mode',choices=('z80','hybrid'))
     parser.add_argument('--region',choices=('ntsc','pal'),default='ntsc')
+    parser.add_argument('--bank',type=Path,default=ROOT/'examples/bank.json')
+    parser.add_argument('--song',type=int,default=5)
     args=parser.parse_args();executable=args.executable.resolve()
     if not args.mode:
         verify_banks(executable)
         for mode in ('z80','hybrid'):
             for region in ('ntsc','pal'):
-                subprocess.run([sys.executable,__file__,str(executable),'--mode',mode,'--region',region],check=True)
+                subprocess.run([sys.executable,__file__,str(executable),'--mode',mode,'--region',region,'--bank',str(args.bank),'--song',str(args.song)],check=True)
         return
-    request=dict(action='preview',document=json.loads((ROOT/'examples/bank.json').read_text()),base_dir=str(ROOT/'examples'),region=args.region,mode=args.mode,revision=1,assets=str(executable.parent/'assets'))
+    bank=args.bank.resolve()
+    request=dict(action='preview',document=json.loads(bank.read_text()),base_dir=str(bank.parent),region=args.region,mode=args.mode,revision=1,assets=str(executable.parent/'assets'))
     env=clean_environment(executable)
     process=subprocess.Popen([str(executable),'--worker'],cwd=executable.parent,env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,encoding='utf-8')
     lines=queue.Queue();errors=[]
@@ -60,21 +63,23 @@ def main():
     threading.Thread(target=reader,daemon=True).start()
     threading.Thread(target=lambda:errors.append(process.stderr.read()),daemon=True).start()
     def send(value):process.stdin.write(json.dumps(value)+'\n');process.stdin.flush()
-    send(request);peak=0;frames=0;ready=False;started=time.monotonic()
+    send(request);peak=0;frames=0;ready=False;load=None;started=time.monotonic()
     try:
         while time.monotonic()-started<45:
             line=lines.get(timeout=45)
             if line is None:raise RuntimeError('Packaged worker ended early: '+''.join(errors))
             value=json.loads(line)
             if value['type']=='error':raise RuntimeError(value['message'])
-            if value['type']=='ready':ready=True;send({'command':[1,5]})
+            if value['type']=='ready':ready=True;send({'command':[1,args.song]})
             if value['type']=='audio':
+                if 'status' in value:load=value['status'].get('m68k_load')
                 data=base64.b64decode(value['data']);samples=struct.unpack('<'+str(len(data)//2)+'h',data)
                 peak=max(peak,max((abs(n) for n in samples),default=0));frames+=1
                 if frames==60:send({'command':[6,3,2,99]})
                 if frames>=120:break
         assert ready and frames>=120 and peak>100,(ready,frames,peak)
-        print(json.dumps({'mode':args.mode,'region':args.region,'ready':ready,'frames':frames,'audio_peak':peak,'stderr':''.join(errors)}))
+        assert load is not None and 0 < load < 100, ('68000 profiler',load)
+        print(json.dumps({'mode':args.mode,'region':args.region,'ready':ready,'frames':frames,'audio_peak':peak,'m68k_load':load,'stderr':''.join(errors)}))
     finally:
         if process.poll() is None:
             send({'quit':True})

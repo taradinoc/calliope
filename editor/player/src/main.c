@@ -62,8 +62,8 @@ int main(bool hardReset)
     /* Keep the rescomp placeholder linked; the release host appends the bank
        above all template sections, at a fixed 32 KiB-aligned address. */
     write16(4, 1);
-    if (clp_bank[0] == 'B')
-        clp_init((const u8 *)0x100000, clpEditorBankLength);
+    clpEditorMailbox[26] = (clp_bank[0] == 'B' &&
+        clp_init((const u8 *)0x100000, clpEditorBankLength)) ? 1 : 2;
     while (TRUE)
     {
         u16 sequence = read16(8), op = read16(12), a = read16(14), b = read16(16), c = read16(18);
@@ -144,7 +144,11 @@ int main(bool hardReset)
             clpEditorMailbox[43] = s.pcmUnderrun;
         }
         write32(28, ++frame);
+        /* Editor CPU profiler excludes the player's VBlank wait, including
+           interrupts serviced during that wait. No game/driver ABI changes. */
+        clpEditorMailbox[25] = 1;
         SYS_doVBlankProcess();
+        clpEditorMailbox[25] = 0;
     }
     return 0;
 }

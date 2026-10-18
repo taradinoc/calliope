@@ -92,6 +92,16 @@ are reported as unobserved rather than incorrectly labeled rejected. Hybrid
 ownership is sampled every six player frames; its sequencer can run ahead of
 audible output by the normal driver lookahead.
 
+The preview shows live **68000 load**, averaged over six emulated frames. This
+is the percentage of the PAL/NTSC frame cycle budget spent executing outside
+the editor player's VBlank wait. It includes adapter commands, `clp_update`,
+event polling, and telemetry. It excludes the VBlank wait and interrupts during
+that wait, and is not the host computer's CPU usage. Pure Z80 mode shows only
+its small 68000 adapter/player cost; hybrid mode also includes sequencing and
+PCM production. Z80 load is omitted because its continuous polling would make
+an execution percentage misleading. Stopping preview clears the reading;
+older player/core assets without profiling support show `unavailable`.
+
 Play or Trigger recompiles a changed bank before previewing it. When an SFX
 trigger causes a rebuild, the last requested music song restarts first. Changing
 region or mode closes preview. Existing playback can continue at its displayed

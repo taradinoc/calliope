@@ -6,6 +6,11 @@
   "bank_address": 1048576,
   "mailbox_address": 16711787,
   "bank_length_address": 43030,
-  "sha256": "1b55f2646b7b5f0fa3b6c0a65ad432e7584188368658a8d55eaef5e8900e0f68",
-  "bank_revision": 12
+  "sha256": "b60ca608338a00b9fffae9b0f67eac393c40bdd418f87083422b232349d5181b",
+  "bank_revision": 12,
+  "initialization_status_offset": 26,
+  "cpu_load": {
+    "version": 1,
+    "wait_offset": 25
+  }
 }

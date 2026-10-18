@@ -1,6 +1,7 @@
 """Verified ROM assembly and minimal libretro host; no GUI or image dependency."""
 
 import ctypes as C
+from collections import deque
 import hashlib
 import json
 from pathlib import Path
@@ -164,9 +165,33 @@ class Player:
             raise RuntimeError("Player mailbox did not initialize")
         if self.read(4, 2) != b"\x00\x01":
             raise RuntimeError("Unsupported player protocol")
+        if metadata.get("initialization_status_offset") == 26:
+            for _ in range(180):
+                initialized = self.read(26, 1)[0]
+                if initialized:
+                    if initialized != 1:
+                        raise RuntimeError("Calliope could not initialize the preview bank")
+                    break
+                self.core.retro_run()
+            else:
+                raise RuntimeError("Calliope preview initialization timed out")
         self.audio = []
         self.core.clp_editor_zram.restype = C.POINTER(C.c_ubyte)
         self.zram = self.core.clp_editor_zram()
+        self.cpu_samples = deque(maxlen=6)
+        profile = metadata.get("cpu_load", {})
+        self.cpu_wait_address = None
+        if (
+            profile.get("version") == 1
+            and profile.get("wait_offset") == 25
+            and hasattr(self.core, "clp_editor_cpu_begin")
+            and hasattr(self.core, "clp_editor_cpu_cycles")
+        ):
+            self.cpu_wait_address = (self.offset + 25) & 65535
+            self.core.clp_editor_cpu_begin.argtypes = [C.c_uint]
+            self.core.clp_editor_cpu_begin.restype = None
+            self.core.clp_editor_cpu_cycles.argtypes = []
+            self.core.clp_editor_cpu_cycles.restype = C.c_uint64
 
     def environment(self, command, data):
         if command in (9, 30, 31) and hasattr(self, "directory_bytes"):
@@ -227,12 +252,23 @@ class Player:
 
     def frame(self):
         self.audio = []
+        if self.cpu_wait_address is not None:
+            self.core.clp_editor_cpu_begin(self.cpu_wait_address)
         self.core.retro_run()
+        if self.cpu_wait_address is not None:
+            budget = 3420 * (313 if self.meta["region"] == "pal" else 262)
+            self.cpu_samples.append(
+                min(100.0, 100.0 * self.core.clp_editor_cpu_cycles() / budget)
+            )
         return b"".join(self.audio)
 
     def status(self):
         data = self.read(0, 116)
         result = {
+            "m68k_load": (
+                sum(self.cpu_samples) / len(self.cpu_samples)
+                if self.cpu_samples else None
+            ),
             "playing": bool(data[41]),
             "fault": data[42],
             "underruns": data[43],

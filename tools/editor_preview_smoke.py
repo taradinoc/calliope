@@ -30,6 +30,8 @@ def main():
         command(1,5);audio=frames(120)
         samples=struct.unpack('<'+str(len(audio)//2)+'h',audio)
         assert max(abs(v) for v in samples)>100,'silent music'
+        load=player.status()['m68k_load']
+        assert load is not None and 0 < load < 100, ('68000 profiler',load)
         state=command(6,3,2,100);assert state['owners'][0]>0,state
         state=command(6,3,2,101);assert any(e['active'] and e['token']==100 for e in state['effects']),state
         assert not any(e['active'] and e['token']==101 for e in state['effects']),state
@@ -52,7 +54,7 @@ def main():
         command(2);frames(30);command(3);frames(30)
         state=command(5);assert not state['playing'] and not state['fault'],state
         assert not any(e['active'] for e in state['effects']),state
-        print(json.dumps({'mode':a.mode,'region':a.region,'sample_rate':player.sample_rate,'fps':player.fps,'peak':max(abs(v) for v in samples),'checks':'music, stealing, equal-priority rejection, preemption, cancellation, multi-FM, coupled PSG, PCM, tempo scaling, pause/resume, stop','status':state}))
+        print(json.dumps({'mode':a.mode,'region':a.region,'sample_rate':player.sample_rate,'fps':player.fps,'m68k_load_playing':load,'peak':max(abs(v) for v in samples),'checks':'68000 load, music, stealing, equal-priority rejection, preemption, cancellation, multi-FM, coupled PSG, PCM, tempo scaling, pause/resume, stop','status':state}))
     finally:player.close()
 
 if __name__=='__main__':main()

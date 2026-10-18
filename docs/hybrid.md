@@ -62,7 +62,7 @@ The producer counter is published last. The Z80 has independent generation and p
 
 Each chip transfer holds the bus for eight payload bytes. Indexing, header construction, capacity checks and pointer arithmetic happen before BUSREQ. The assembly helpers preserve SR and prior bus ownership. Service is bounded to 48 fragments / 384 payload bytes per update; a dense clock continues next update. Cached page cursors avoid repeating preparation for every fragment. The lookahead limit is fixed per call rather than chasing elapsed time.
 
-Static patches are resident in a sixteen-entry, 32-byte table. A dedicated Z80 install operation replaces expanded register records in both hybrid modes. Current TL overrides follow installation. Frequency high/low pairs and key events remain explicit. PSG uses latch bytes and avoids redundant noise-mode writes that restart the LFSR.
+Static patches are resident in a 63-entry, 32-byte table at 0800h..0FDfh, below the guard at 0FF8h. Banks with more than 63 patches are rejected during compilation and initialization. A dedicated Z80 install operation replaces expanded register records in both hybrid modes. Current TL overrides follow installation. Frequency high/low pairs and key events remain explicit. PSG uses latch bytes and avoids redundant noise-mode writes that restart the LFSR.
 
 ## PCM FIFO and DMA
 

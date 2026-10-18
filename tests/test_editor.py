@@ -1,5 +1,6 @@
 """Editor service and document regressions without a GUI dependency."""
 import copy
+from collections import deque
 import hashlib
 import json
 from pathlib import Path
@@ -12,9 +13,67 @@ sys.path.insert(0,str(ROOT/'tools'))
 from calliope.compiler import compile_bank
 from calliope.editor.document import Document
 from calliope.editor.services import cached_compile,compile_document,export_bank,inspect_source,validate_document
-from calliope.editor.preview import make_rom
+from calliope.editor.preview import make_rom, Player
+
+
+class CpuLoad(unittest.TestCase):
+    def test_frame_budget_average_and_observational_status(self):
+        class Core:
+            cycles = 0
+            def clp_editor_cpu_begin(self, address): self.address = address
+            def retro_run(self): pass
+            def clp_editor_cpu_cycles(self): return self.cycles
+
+        for region, lines in (("ntsc", 262), ("pal", 313)):
+            player = Player.__new__(Player)
+            player.core = Core()
+            player.meta = {"mode": "hybrid", "region": region}
+            player.cpu_wait_address = 123
+            player.cpu_samples = deque(maxlen=6)
+            player.read = lambda at, size: bytes(size)
+            self.assertIsNone(player.status()["m68k_load"])
+            player.core.cycles = 3420 * lines // 2
+            for _ in range(6): player.frame()
+            self.assertEqual(player.core.address, 123)
+            self.assertAlmostEqual(player.status()["m68k_load"], 50)
+            self.assertAlmostEqual(player.status()["m68k_load"], 50)
+            player.core.cycles = 0
+            player.frame()
+            self.assertAlmostEqual(player.status()["m68k_load"], 250 / 6)
+            for _ in range(6): player.frame()
+            self.assertEqual(player.status()["m68k_load"], 0)
+            player.core.cycles = 3420 * lines * 2
+            for _ in range(6): player.frame()
+            self.assertEqual(player.status()["m68k_load"], 100)
+
 
 class EditorServices(unittest.TestCase):
+    def test_hybrid_resident_patch_capacity(self):
+        from unittest.mock import patch
+        from clpconvert import FormatError
+        from calliope.compiler import fm_patch
+        import itertools
+        doc = {'version':1, 'sfx':[
+            {'id':i, 'name':f'patch_{i}', 'source':'fm_ring.fur'} for i in range(22)
+        ]}
+        def patches():
+            counter = itertools.count()
+            def unique(*args, **kwargs):
+                result = fm_patch(*args, **kwargs)
+                if len(args) == 5:
+                    return bytes([next(counter)]) + result[1:]
+                return result
+            return patch('calliope.compiler.fm_patch', side_effect=unique)
+        with patches(), self.assertRaisesRegex(FormatError, '63 resident FM patches'):
+            compile_document(doc, ROOT/'examples', mode='hybrid')
+        with patches():
+            data, _, _ = compile_document(doc, ROOT/'examples', mode='z80')
+            self.assertEqual(data[8], 66)
+        doc['sfx'].pop()
+        with patches():
+            data, _, _ = compile_document(doc, ROOT/'examples', mode='hybrid')
+            self.assertEqual(data[8], 63)
+
     def test_preview_cache_and_progress(self):
         doc={'version':1,'songs':[{'id':1,'name':'melody','source':'melody232.fur','voices':[{'channel':'melody','slot':'fm0'}],'external_commands':'passthrough'}]}
         with tempfile.TemporaryDirectory() as cache:

@@ -14,6 +14,8 @@ extern const u8 clp_driver[8192];
 #define CLH_PCM_TARGET 896
 #define CLH_LOOKAHEAD 1024
 #define CLH_COPY_QUOTA 48
+/* Resident patches occupy 0800h..0FDfh; the guard starts at 0FF8h. */
+#define CLH_PATCH_LIMIT 63
 #if defined(CALLIOPE_HOST_PCM) && CALLIOPE_HOST_PCM
 #define CLH_HEADER 12
 #define CLH_PER_PAGE 81
@@ -30,6 +32,11 @@ static u8 partCount, arrangementCount;
 static u16 le16(const u8 *p) { return p[0] | ((u16)p[1] << 8); }
 static u32 le24(const u8 *p) { return p[0] | ((u32)p[1] << 8) | ((u32)p[2] << 16); }
 #include "effect_index.h"
+static bool patchTableValid(const u8 *bank, u32 length)
+{
+    return bank[8] <= CLH_PATCH_LIMIT &&
+           le24(bank + 16) + (u32)bank[8] * 32 <= length;
+}
 static void put16(volatile u8 *p, u16 v)
 {
     p[0] = (u8)v;
@@ -796,6 +803,12 @@ static void decode(u8 context)
             credit = 0;
             continue;
         }
+        /* The conductor has no selected voice. LFO is a global YM setting. */
+        if (op == 0x39)
+        {
+            ym(0, 0x22, a[0]);
+            continue;
+        }
         if (op == 0xfd)
         {
             if (context || channelDecode)
@@ -1005,10 +1018,6 @@ static void decode(u8 context)
                     }
                 }
             }
-        }
-        else if (op == 0x39)
-        {
-            ym(0, 0x22, a[0]);
         }
         else if (op == 0x33)
         {
@@ -1477,7 +1486,7 @@ bool clp_init(const u8 *bank, u32 length)
     u16 i, frames;
     if ((address & 32767) || length < 32 || address + length > 0x400000 || bank[0] != 'B' || bank[1] != 'G' || bank[2] != 'M' || bank[3] != '1' || bank[4] != 12 || bank[5] || le16(bank + 19) != 1020 || bank[21] != (SYS_isPAL() ? 1 : 0))
         return FALSE;
-    if (!effectIndexValid(bank, length))
+    if (!effectIndexValid(bank, length) || !patchTableValid(bank, length))
         return FALSE;
     bankData = bank;
     bankSize = length;
@@ -1522,11 +1531,6 @@ bool clp_init(const u8 *bank, u32 length)
 #endif
     Z80_loadCustomDriver(clp_driver, 8192);
     /* Init is still waiting for its handshake, so no DAC deadline exists. */
-    if (bank[8] > 16 || le24(bank + 16) + (u32)bank[8] * 32 > length)
-    {
-        initialized = 0;
-        return FALSE;
-    }
     SYS_disableInts();
     Z80_requestBus(TRUE);
     for (i = 0; i < (u16)bank[8] * 32; i++)

@@ -5,7 +5,8 @@ The editor's preview runs Genesis Plus GX, pinned at
 https://github.com/libretro/Genesis-Plus-GX.
 
 The core includes a Calliope modification exporting a read-only pointer to Z80
-RAM. Its CPU and audio execution paths are unchanged. The complete upstream
+RAM and observing 68000 instruction cycles for editor CPU load. Profiling does
+not change emulated cycle counts or chip behavior. The complete upstream
 source, Calliope telemetry hook, and CMake build files accompany the binary in
 `assets/genesis-plus-gx-source.zip`. Extract it and configure CMake with
 `-DCORE_SOURCE=/path/to/Genesis-Plus-GX` against `calliope-core-build` to rebuild.

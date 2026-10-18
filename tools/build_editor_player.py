@@ -41,7 +41,9 @@ def main():
             if len(raw)>0x100000 or length+4>len(raw): raise RuntimeError('template overlaps bank slot')
             metadata={'protocol':1,'mode':mode,'region':region,'pcm_timer':1020 if mode=='hybrid' else 1016,
                       'bank_address':0x100000,'mailbox_address':mailbox&0xffffff,'bank_length_address':length,
-                      'sha256':hashlib.sha256(raw).hexdigest(),'bank_revision':12}
+                      'sha256':hashlib.sha256(raw).hexdigest(),'bank_revision':12,
+                      'initialization_status_offset':26,
+                      'cpu_load':{'version':1,'wait_offset':25}}
             stem=a.output/f'{mode}-{region}'
             stem.with_suffix('.bin').write_bytes(raw)
             stem.with_suffix('.json').write_text(json.dumps(metadata,indent=2)+'\n')
