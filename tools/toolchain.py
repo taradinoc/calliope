@@ -19,6 +19,9 @@ def sgdk_tool(sdk, tool):
         command = shutil.which(name)
         if command:
             return Path(command).resolve()
+        bundled = sdk / "bin" / name
+        if bundled.is_file():
+            return bundled.resolve()
     raise ValueError(
         f"SGDK tool missing: {tool}; "
         + (f"check {sdk / 'bin'} and GDK/--sgdk."

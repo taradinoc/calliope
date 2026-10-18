@@ -13,12 +13,21 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 
 
+import time
+
+
 def write(path, text):
     path = Path(path)
     raw = text.replace("\r\n", "\n").replace("\n", "\r\n").encode()
     path.parent.mkdir(parents=True, exist_ok=True)
-    if not path.exists() or path.read_bytes() != raw:
-        path.write_bytes(raw)
+    if path.exists():
+        if path.read_bytes() == raw:
+            return
+        old_sec = int(path.stat().st_mtime)
+        now = time.time()
+        if int(now) <= old_sec:
+            time.sleep(old_sec + 1 - now)
+    path.write_bytes(raw)
 
 
 def resolve(sgdk, header, hybrid=None, host_pcm=None):
