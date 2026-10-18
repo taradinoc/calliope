@@ -27,10 +27,13 @@ def verify(home, sdk, destination):
                  'CALLIOPE_HOME=' + home.as_posix(), 'CALLIOPE_PYTHON=' + sys.executable]
     log = destination / 'build.log'
 
-    def build(*settings):
+    def build(*settings, target='release'):
         with log.open('a') as output:
-            subprocess.run(arguments + list(settings), cwd=project, stdout=output,
+            subprocess.run([arguments[0], target] + arguments[2:] + list(settings), cwd=project, stdout=output,
                            stderr=subprocess.STDOUT, check=True, timeout=180)
+        mode_rom = project / 'out' / target / 'rom.bin'
+        if mode_rom.exists():
+            assert mode_rom.read_bytes() == (project / 'out/rom.bin').read_bytes(), 'Published ROM differs from finalized mode ROM'
 
     for hybrid in (0, 1):
         for region in ('ntsc', 'pal'):
@@ -58,6 +61,8 @@ def verify(home, sdk, destination):
     source.write_text(source.read_text().replace('CLP_SONGS_MELODY', 'CLP_SONGS_RENAMED'))
     build('CALLIOPE_HYBRID=1', 'CALLIOPE_REGION=pal')
     assert 'CLP_SONGS_RENAMED' in (project / 'out/calliope/clp_ids.h').read_text()
+    # New SGDK has a separate debug object tree and publishes out/rom.bin.
+    build('CALLIOPE_HYBRID=1', 'CALLIOPE_REGION=pal', target='debug')
     print('Passed consumer mode/region matrix, incremental builds, asset/ID edits and ordinary resources:', home)
 
 

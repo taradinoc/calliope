@@ -71,7 +71,7 @@ def resolve(sgdk, header, hybrid=None, host_pcm=None):
     }
 
 
-def prepare(sgdk, header, out, driver_asm, hybrid=None, host_pcm=None):
+def prepare(sgdk, header, out, driver_asm, hybrid=None, host_pcm=None, make_writer=write):
     config = resolve(sgdk, header, hybrid, host_pcm)
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
@@ -210,7 +210,7 @@ def prepare(sgdk, header, out, driver_asm, hybrid=None, host_pcm=None):
         "CALLIOPE_RESOLVED_HOST_PCM := " + str(int(config["host_pcm"])),
         "# Driver signature: " + digest,
     ]
-    write(out / "calliope_build.mk", "\n".join(make) + "\n")
+    make_writer(out / "calliope_build.mk", "\n".join(make) + "\n")
     return config
 
 
@@ -233,6 +233,7 @@ def main():
     p.add_argument("--hybrid", type=int, choices=(0, 1))
     p.add_argument("--host-pcm", type=int, choices=(0, 1))
     a = p.parse_args()
+    pending_make = {}
     try:
         config = prepare(
             sgdk_path(a.sgdk),
@@ -241,6 +242,7 @@ def main():
             a.driver_asm,
             a.hybrid,
             a.host_pcm,
+            make_writer=pending_make.__setitem__,
         )
     except (ValueError, OSError) as e:
         p.exit(1, str(e) + "\n")
@@ -272,6 +274,16 @@ def main():
             + (sgdk_path(a.sgdk) / "src/dma.c").as_posix()
             + '"\n',
         )
+    # Publish the included Makefile only after all generated sources are ready.
+    # Its signature must change for bank-only edits too, so Make drops cached
+    # source timestamps before deciding what to rebuild.
+    make_path, make_text = pending_make.popitem()
+    if a.bank:
+        signature = hashlib.sha256()
+        for name in ("bank.s", "audio.h", "clp_ids.h"):
+            signature.update((a.output_dir / name).read_bytes())
+        make_text += "# Bank signature: " + signature.hexdigest() + "\n"
+    write(make_path, make_text)
     print(
         "Calliope mode: "
         + ("hybrid" if config["hybrid"] else "Z80")

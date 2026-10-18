@@ -30,6 +30,12 @@ When switching between Windows and Linux tools in one checkout, remove the
 project's generated `out` directory first so Make cannot reuse incompatible
 objects or dependency files.
 
+The Make include supports SGDK's older `out` layout and its newer
+`out/release` and `out/debug` layouts. Both publish the finalized ROM at
+`out/rom.bin`, so the Python build command stays the same. Calliope adds its
+compiler flags after SGDK has resolved its own flags and tracks generated
+sources in the selected output directory.
+
 ## New project
 
 Start from `examples/minimal`, or create `src/main.c` and a Makefile. Keep a

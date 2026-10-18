@@ -3,6 +3,8 @@
 ifndef CALLIOPE_HOME
 CALLIOPE_HOME := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/..)
 endif
+# SGDK 2.11 uses OUT; newer SGDK separates release/debug with OUT_DIR.
+CLP_OUT := $(if $(OUT_DIR),$(OUT_DIR),$(OUT))
 CALLIOPE_PYTHON ?= python
 CALLIOPE_CONFIG_HEADER ?= $(CALLIOPE_HOME)/include/calliope_config.h
 CALLIOPE_BUILD_DIR ?= out/calliope
@@ -40,42 +42,64 @@ $(CLP_CONFIG_MK): calliope-config-force
 include $(CLP_CONFIG_MK)
 calliope-config: $(CLP_CONFIG_MK)
 
-EXTRA_FLAGS += -I"$(CALLIOPE_HOME)/include" -include "$(CLP_CONFIG_H)"
+CLP_FLAGS := -I"$(CALLIOPE_HOME)/include" -include "$(CLP_CONFIG_H)"
+ifneq ($(strip $(CALLIOPE_BANK)),)
+CLP_FLAGS += -I"$(CALLIOPE_BUILD_DIR)"
+endif
+# Newer SGDK freezes these flags before this include, so EXTRA_FLAGS alone
+# cannot affect compilation. Older SGDK expands EXTRA_FLAGS lazily.
+ifneq ($(strip $(OUT_DIR)),)
+DEFAULT_FLAGS += $(CLP_FLAGS)
+CFLAGS += $(CLP_FLAGS)
+AFLAGS += $(CLP_FLAGS)
+else
+EXTRA_FLAGS += $(CLP_FLAGS)
+endif
 export CALLIOPE_HOME CALLIOPE_PYTHON CALLIOPE_PCM_TIMER
 # C and assembly objects, plus rescomp, must be rebuilt after a mode switch.
-CLP_RESOURCE_OBJS := $(addprefix $(OUT)/,$(RES_RES:.res=.o))
+CLP_RESOURCE_OBJS := $(addprefix $(CLP_OUT)/,$(RES_RES:.res=.o))
 $(filter-out $(CLP_RESOURCE_OBJS),$(OBJS)) $(RES_RS): $(CLP_CONFIG_H)
 # SGDK's initial wildcard may not see the driver on a fresh consumer checkout.
-CLP_DRIVER_OBJ := $(OUT)/$(CALLIOPE_DRIVER_ASM:.s=.o)
+CLP_DRIVER_OBJ := $(CLP_OUT)/$(CALLIOPE_DRIVER_ASM:.s=.o)
 OBJS := $(OBJS) $(filter-out $(OBJS),$(CLP_DRIVER_OBJ))
 $(CLP_DRIVER_OBJ): $(CALLIOPE_DRIVER_ASM) $(CLP_CONFIG_H)
-$(OUT)/rom.out: $(CLP_DRIVER_OBJ)
-$(OUT)/cmd_: $(CLP_DRIVER_OBJ)
+$(CLP_OUT)/rom.out: $(CLP_DRIVER_OBJ)
+$(CLP_OUT)/cmd_: $(CLP_DRIVER_OBJ)
 
 # Optional generated includes compile library sources in the consumer without
 # copying library implementation files into the project checkout.
 ifeq ($(CALLIOPE_SOURCE_WRAPPERS),1)
-CLP_WRAPPER_OBJS := $(OUT)/$(CALLIOPE_BUILD_DIR)/adapter.o $(OUT)/$(CALLIOPE_BUILD_DIR)/bus.o $(OUT)/$(CALLIOPE_BUILD_DIR)/dma.o
+CLP_WRAPPER_OBJS := $(CLP_OUT)/$(CALLIOPE_BUILD_DIR)/adapter.o $(CLP_OUT)/$(CALLIOPE_BUILD_DIR)/bus.o $(CLP_OUT)/$(CALLIOPE_BUILD_DIR)/dma.o
 OBJS := $(OBJS) $(filter-out $(OBJS),$(CLP_WRAPPER_OBJS))
 -include $(CLP_WRAPPER_OBJS:.o=.d)
-$(OUT)/$(CALLIOPE_BUILD_DIR)/bus.o: $(CALLIOPE_HOME)/src/hybrid_bus.s
+$(CLP_OUT)/$(CALLIOPE_BUILD_DIR)/bus.o: $(CALLIOPE_HOME)/src/hybrid_bus.s
 $(CLP_WRAPPER_OBJS): $(CLP_CONFIG_H)
-$(OUT)/rom.out: $(CLP_WRAPPER_OBJS)
-$(OUT)/cmd_: $(CLP_WRAPPER_OBJS)
+$(CLP_OUT)/rom.out: $(CLP_WRAPPER_OBJS)
+$(CLP_OUT)/cmd_: $(CLP_WRAPPER_OBJS)
 endif
 
 # The direct-bank workflow owns all generated sources beneath the build dir.
 # Configuration runs on every Make invocation; content-aware publication leaves
 # timestamps unchanged when inputs have not changed.
 ifneq ($(strip $(CALLIOPE_BANK)),)
-EXTRA_FLAGS += -I"$(CALLIOPE_BUILD_DIR)"
-CLP_BANK_OBJ := $(OUT)/$(CALLIOPE_BUILD_DIR)/bank.o
+CLP_BANK_OBJ := $(CLP_OUT)/$(CALLIOPE_BUILD_DIR)/bank.o
 OBJS := $(OBJS) $(filter-out $(OBJS),$(CLP_BANK_OBJ))
-$(OUT)/cmd_: $(CLP_BANK_OBJ)
-$(OUT)/rom.out: $(CLP_BANK_OBJ)
+$(CLP_OUT)/cmd_: $(CLP_BANK_OBJ)
+$(CLP_OUT)/rom.out: $(CLP_BANK_OBJ)
 $(CLP_BANK_OBJ): $(CALLIOPE_BUILD_DIR)/bank.s $(CLP_CONFIG_H)
 $(filter-out $(CLP_RESOURCE_OBJS),$(OBJS)): $(CALLIOPE_BUILD_DIR)/audio.h $(CALLIOPE_BUILD_DIR)/clp_ids.h
 # SGDK pads the ROM first. Final validation runs after all release prerequisites.
 release debug:
-	"$(CALLIOPE_PYTHON)" "$(CALLIOPE_HOME)/tools/consumer.py" --rom "$(OUT)/rom.bin" --symbols "$(OUT)/symbol.txt" --config "$(CALLIOPE_BUILD_DIR)/calliope_config.json" --symbol "$(CALLIOPE_BANK_SYMBOL)"
+	"$(CALLIOPE_PYTHON)" "$(CALLIOPE_HOME)/tools/consumer.py" --rom "$(CLP_OUT)/rom.bin" --symbols "$(CLP_OUT)/symbol.txt" --config "$(CALLIOPE_BUILD_DIR)/calliope_config.json" --symbol "$(CALLIOPE_BANK_SYMBOL)"
+ifneq ($(CLP_OUT),out)
+	$(CP) "$(CLP_OUT)/rom.bin" out/rom.bin
+endif
+endif
+
+ifneq ($(strip $(DEP_DIR)),)
+CLP_GENERATED_OBJS := $(CLP_DRIVER_OBJ) $(CLP_WRAPPER_OBJS) $(CLP_BANK_OBJ)
+CLP_GENERATED_DEPS := $(patsubst $(CLP_OUT)/%.o,$(DEP_DIR)/%.d,$(CLP_GENERATED_OBJS))
+# Configure before SGDK preprocesses dependencies, including on a region switch.
+$(DEPS) $(CLP_GENERATED_DEPS): $(CLP_CONFIG_MK)
+-include $(CLP_GENERATED_DEPS)
 endif
