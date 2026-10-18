@@ -26,6 +26,11 @@ def atomic(path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
     if same_contents(path, data):
         return
+    if path.exists():
+        old_sec = int(path.stat().st_mtime)
+        now = time.time()
+        if int(now) <= old_sec:
+            time.sleep(old_sec + 1 - now)
     fd, tmp = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
     try:
         with os.fdopen(fd, "wb") as f:
