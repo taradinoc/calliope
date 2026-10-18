@@ -6,7 +6,8 @@ prioritized effects, arrangements and external events.
 
 ## First build
 
-On Windows, install Python 3.10+, SGDK and SGDK's Java runtime requirement.
+Install Python 3.10+, SGDK and SGDK's Java runtime requirement. Linux and WSL
+also need native SGDK tools; see the [Linux setup](docs/integration.md).
 Set `GDK` to your SGDK directory, then run from this checkout:
 
 ```text
@@ -52,8 +53,8 @@ ROM templates. See [editor instructions](docs/editor.md) and
 Pure Z80 is the default, with approximately 6.66 kHz NTSC PCM; hybrid uses
 approximately 13.32 kHz. Neither mode has completed physical hardware acceptance.
 Known scheduling, DAC timing and PAL stress limits remain; see the current
-limitations before choosing a mode. Windows is the verified development target;
-Linux and macOS workflows have not been natively verified.
+limitations before choosing a mode. Windows and native Linux tools under WSL
+have verified ROM builds. macOS builds remain unverified.
 
 ## License and release status
 

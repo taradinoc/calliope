@@ -8,10 +8,10 @@ from pathlib import Path
 from libretro_host import Host
 ROOT=Path(__file__).resolve().parents[1]
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--frames',type=int,default=3000);p.add_argument('--pal',action='store_true');p.add_argument('--stress',action='store_true');p.add_argument('--dma',action='store_true');a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--core',type=Path,default=ROOT/'out/trace-core/build/calliope_trace.dll');p.add_argument('--frames',type=int,default=3000);p.add_argument('--pal',action='store_true');p.add_argument('--stress',action='store_true');p.add_argument('--dma',action='store_true');a=p.parse_args()
     report=json.loads((ROOT/'out/build-report.json').read_text());assert report['hybrid'] and report['region']==('pal' if a.pal else 'ntsc')
     out=ROOT/'out/hybrid-profile';out.mkdir(exist_ok=True)
-    h=Host(ROOT/'out/trace-core/build/calliope_trace.dll',ROOT/'audition/out/rom.bin',out,{b'genesis_plus_gx_region_detect':report['region'].encode()})
+    h=Host(a.core,ROOT/'audition/out/rom.bin',out,{b'genesis_plus_gx_region_detect':report['region'].encode()})
     symbols=(ROOT/'audition/out/symbol.txt').read_text();syms={n:int(x,16)&65535 for x,n in re.findall(r'^([0-9a-f]+) \w (\w+)$',symbols,re.M)}
     hist=Counter();h.core.clp_main_pc.restype=C.c_uint
     ram=C.cast(h.core.retro_get_memory_data(2),C.POINTER(C.c_ubyte));h.core.clp_pcm_positions.restype=C.c_uint
@@ -42,14 +42,21 @@ def main():
         rendered=value('gsTestFrames',4)-start
         result=dict(host_pcm=report['host_pcm'],rom_sha256=hashlib.sha256((ROOT/'audition/out/rom.bin').read_bytes()).hexdigest(),region=report['region'],frames=a.frames,stress=a.stress,dma=a.dma,displayed_frames=rendered,displayed_fps=rendered/a.frames*h.video_hz,dac_writes=count,audio_service_occupancy_percent=100*busy/count,audio_service_estimated_ms_per_frame=1000*busy/count/h.video_hz,minimum_pcm_depth=minimum,maximum_pcm_depth=maximum,fault=value('gsTestFault'),underrun=value('gsTestPcmUnderrun'))
         if instruction_profile:
-            cycles=h.core.clp_audio_profile_cycles()[:32768]
+            slots=32768
+            if hasattr(h.core,'clp_audio_profile_slots'):
+                h.core.clp_audio_profile_slots.restype=C.c_uint
+                slots=h.core.clp_audio_profile_slots()
+            cycles=h.core.clp_audio_profile_cycles()[:slots]
             total=sum(cycles);master=53203424 if a.pal else 53693175;lines=313 if a.pal else 262
             result['instruction_audio_frame_percent']=100*total/(a.frames*3420*lines)
             result['instruction_audio_ms_per_frame']=1000*total/(a.frames*master)
-            functions=sorted((int(x,16),n) for x,n in re.findall(r'^([0-9a-f]+) [tT] (\S+)',symbols,re.M) if int(x,16)<65536)
+            functions=sorted((int(x,16),n) for x,n in re.findall(r'^([0-9a-f]+) [tT] (\S+)',symbols,re.M))
+            if any(slots*2 <= at < 0x400000 for at,_ in functions):
+                raise RuntimeError('Trace core cannot profile all ROM code; rebuild with tools/build_trace_core.py')
+            functions=[(at,name) for at,name in functions if at<slots*2]
             breakdown=[]
             for i,(at,name) in enumerate(functions):
-                end=functions[i+1][0] if i+1<len(functions) else 65536
+                end=functions[i+1][0] if i+1<len(functions) else slots*2
                 cost=sum(cycles[at//2:end//2])
                 if cost:breakdown.append(dict(name=name,master_cycles=cost,frame_percent=100*cost/(a.frames*3420*lines)))
             result['instruction_functions']=sorted(breakdown,key=lambda item:item['master_cycles'],reverse=True)

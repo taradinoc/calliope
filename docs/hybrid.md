@@ -31,6 +31,18 @@ Genesis Z80 access cannot read 68000 work RAM. Chip packets still use short BUSR
 
 ## Decoder and packet scheduling
 
+The October 18 optimization specializes conductor, music-channel and effect
+decoding from one checked implementation. Channel cursors and waits update
+directly, and a cached PCM-first traversal plus a short 68000 countdown loop
+replaces repeated scans. The first transport header is constructed in its
+staging page. Transfers batch their setup while retaining eight-byte bus holds,
+release gaps, the 48-fragment quota and clock refresh after eight fragments.
+Empty cue delivery avoids the queue-copy routine; status snapshots share one
+assembly call across three short holds and retain the publication check.
+Normal NTSC/PAL service measured 12.07% / 11.94%, including status polling;
+DMA/SFX stress measured 12.90% / 12.63%. The 9% goal has not been reached.
+Evidence is saved under `out/cpu-optimization/verified-*.json`.
+
 The musical decoder uses a local cursor and checks fixed-width operands once per opcode. Variable PSG tails are separately bounded before state changes. Waits, validated jumps and failure exits commit the cursor explicitly. The 1024-opcode budget and existing fault behavior remain. Golden traces cover all five songs for 6000 clocks each; timing, output records and stream positions match the earlier implementation.
 
 A private sixteen-command ring keeps the public API high-level. `clp_update` processes controls at the next unprepared nominal 60 Hz clock. Music uses compiled fractional tick credit; SFX keep the nominal 60 Hz clock. A division-free rational accumulator advances regional sample deadlines using master clock / 241920 samples per clock.
@@ -109,3 +121,10 @@ Set `CALLIOPE_PCM_TIMER=1020` before `pcm_preemption_smoke.py --hybrid`, `pcm_ro
 `tools/build_trace_core.py` builds project-local instrumentation without changing the reference emulator source. Host tests cover decoder truncation/budgets, counter and multi-page wrapping, record overflow, current-state SFX restoration, next-note entry, attenuation, coupled resources, PCM source headers/loops/priority/token stops, stale generations and event overflow. The host-PCM tests also cover upload planning at both ring wraps. The ordinary build retains its own tests.
 
 Multi-channel FM effects share five physical SFX shadows, adding 70 bytes of 68000 state. Their descriptor kind 8 uses physical slot operands, and one shared effect context owns the full authored mask. Independent patches, levels and gates use the existing renderer; allocation and release are atomic across the mask. MODE+A plays the five-channel fixture. See [authoring.md](authoring.md) for source and mask rules.
+
+The instruction profiler now covers the full 4 MB linear-ROM range and reports
+its counter size. Older trace cores are rejected when the ROM contains code
+outside their counter range. To avoid replacing a core in use by another app,
+build a separate copy with `tools/build_trace_core.py --source PATH --output-dir
+out/trace-cpu`, then pass `--core out/trace-cpu/build/calliope_trace.dll` to
+`tools/hybrid_profile.py`.

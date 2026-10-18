@@ -1,6 +1,6 @@
 """Build a directly converted Calliope bank and SGDK audition ROM."""
 
-from toolchain import sgdk_path
+from toolchain import sgdk_path, sgdk_tool
 import argparse
 import hashlib
 import json
@@ -27,7 +27,6 @@ def main(project=None, manifest_path=None):
     project = Path(project or ROOT / "audition").resolve()
     manifest_path = Path(manifest_path or ROOT / "examples/bank.json").resolve()
     out = ROOT / "out" if project == ROOT / "audition" else project / "out/calliope"
-    out.mkdir(parents=True, exist_ok=True)
     p = argparse.ArgumentParser()
     p.add_argument("--sgdk", type=Path, default=None)
     p.add_argument("--region", choices=("ntsc", "pal"), default="ntsc")
@@ -71,6 +70,7 @@ def main(project=None, manifest_path=None):
         a.sgdk = sgdk_path(a.sgdk)
     except ValueError as e:
         p.error(str(e))
+    out.mkdir(parents=True, exist_ok=True)
     make_args = [
         "GDK=" + a.sgdk.as_posix(),
         "CALLIOPE_HOME=" + ROOT.as_posix(),
@@ -95,7 +95,7 @@ def main(project=None, manifest_path=None):
             + '"\n',
         )
     run(
-        [a.sgdk / "bin/make.exe", "release"]
+        [sgdk_tool(a.sgdk, "make"), "release"]
         + make_args
         + ["CALLIOPE_REGION=" + a.region],
         project,

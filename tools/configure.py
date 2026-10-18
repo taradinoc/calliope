@@ -1,6 +1,6 @@
 """Resolve one compile-time mode for C, Z80 assembly and PCM conversion."""
 
-from toolchain import sgdk_path
+from toolchain import sgdk_path, sgdk_tool
 import argparse
 import hashlib
 import json
@@ -26,7 +26,7 @@ def resolve(sgdk, header, hybrid=None, host_pcm=None):
     if not header.is_file():
         raise ValueError("configuration header not found: " + str(header))
     command = [
-        str(Path(sgdk) / "bin/gcc.exe"),
+        str(sgdk_tool(sgdk, "gcc")),
         "-E",
         "-P",
         "-Wundef",
@@ -75,7 +75,7 @@ def prepare(sgdk, header, out, driver_asm, hybrid=None, host_pcm=None):
     config = resolve(sgdk, header, hybrid, host_pcm)
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    assembler = (Path(sgdk) / "bin/sjasm.exe").resolve()
+    assembler = sgdk_tool(sgdk, "sjasm")
     sources = sorted(
         p for p in (ROOT / "driver").iterdir() if p.suffix in (".s80", ".i80")
     )

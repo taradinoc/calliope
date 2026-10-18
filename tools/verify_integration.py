@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from toolchain import sgdk_path
+from toolchain import sgdk_path, sgdk_tool
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -23,7 +23,7 @@ def verify(home, sdk, destination):
     source.write_text(source.read_text().replace('#include "audio.h"', '#include "audio.h"\n#include "ordinary.h"')
                       .replace('u16 previous = 0', 'VDP_setBackgroundColor(ordinary[0]);\n    u16 previous = 0'))
     # Resolve from the consumer, never from the caller's working directory.
-    arguments = [str(sdk / 'bin/make.exe'), 'release', 'GDK=' + sdk.as_posix(),
+    arguments = [str(sgdk_tool(sdk, 'make')), 'release', 'GDK=' + sdk.as_posix(),
                  'CALLIOPE_HOME=' + home.as_posix(), 'CALLIOPE_PYTHON=' + sys.executable]
     log = destination / 'build.log'
 

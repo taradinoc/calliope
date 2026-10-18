@@ -124,8 +124,9 @@ driver, or mailbox changes on a development machine with SGDK and its Java runti
 python tools/build_editor_player.py --sgdk PATH
 ```
 
-The existing SGDK build helper currently uses Windows executable names. This is
-a release-preparation dependency, not a requirement on editor users; copy the
+The SGDK build helper uses Windows executables on Windows and native tools on
+Linux; see [build requirements](integration.md). This is a release-preparation
+dependency, not a requirement on editor users; copy the
 four generated templates and metadata into each native packaging checkout.
 Banks are inserted at ROM address `0x100000`, aligned to 32 KiB, with a 4 MiB ROM
 limit. Metadata pins template SHA-256, mailbox protocol 1, BGM1 revision 12,

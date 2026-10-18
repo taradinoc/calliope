@@ -1,8 +1,34 @@
 # SGDK integration
 
-Calliope supports Windows SGDK builds. Install Python 3.10+, SGDK and the Java
+Calliope supports Windows and native Linux SGDK builds. Install Python 3.10+, SGDK and the Java
 runtime required by SGDK. The default Calliope workflow does not require a JDK.
 Set `GDK` to your SDK directory. No SDK files are modified.
+
+On Linux (including WSL), install GNU Make, a native `m68k-elf-gcc` toolchain
+with binutils and libgcc, SGDK's `sjasm`, and Java on `PATH`. Use SGDK libraries
+built with a compatible compiler. SGDK's supplied `.exe` programs are Windows
+binaries; pointing `--sgdk` at that directory does not install Linux tools.
+See [SGDK's Linux setup options](https://github.com/Stephane-D/SGDK#help-and-support).
+Ordinary SGDK resources may also need native `bintos`, `mac68k`, and `convsym`,
+depending on the project. The direct-bank workflow uses Java JARs from SGDK's
+`bin` directory without a JDK.
+
+Once the native tools are installed, the same helper builds the karaoke example:
+
+```sh
+export GDK=/path/to/sgdk
+export PATH=/path/to/m68k-toolchain/bin:/path/to/sgdk-native-tools:$PATH
+python3 examples/karaoke/build.py --sgdk "$GDK"
+```
+
+All paths remain Linux paths, including `/mnt/d/sgdk` under WSL. The build uses
+Linux Python, Make, GCC and sjasm. If your compiler uses another target prefix,
+set `PREFIX` (for example `export PREFIX=m68k-elf-`); both configuration and
+SGDK Make use it. The compiler must support SGDK's flags and libraries.
+Use a checkout/SDK path without spaces, as required by SGDK's Make rules.
+When switching between Windows and Linux tools in one checkout, remove the
+project's generated `out` directory first so Make cannot reuse incompatible
+objects or dependency files.
 
 ## New project
 
@@ -22,7 +48,8 @@ include $(CALLIOPE_HOME)/make/calliope.mk
 
 Paths in the manifest are relative to the manifest, not the game Makefile.
 Copy the manifest and original fixture assets from `examples/minimal/audio`.
-Build from the game directory with `make release`, using SGDK's `bin/make.exe`.
+Build from the game directory with `make release`, using SGDK's `bin/make.exe`
+on Windows or native GNU Make on Linux.
 Set `CALLIOPE_PYTHON` if `python` is not the intended interpreter. The helper
 infers its library root when `CALLIOPE_HOME` is omitted.
 

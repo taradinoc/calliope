@@ -15,9 +15,11 @@ implemented. See authoring and API documentation for supported effects and limit
   a 21420 minimum over 18000 video frames. The gate remains an acceptance failure.
 - Pure Z80 NTSC hitch measurements have exceeded the 150-stall gate (172 in a
   recorded 6000-frame workload). Workload and driver changes require fresh evidence.
-- Revision-12 hybrid recorded zero underruns in NTSC/PAL stress, at approximately
-  16.15% / 15.79% of a 68000 frame for audio service. Control latency, strict DAC
-  jitter and fresh-patch onset alignment remain open.
+- The October 18 hybrid optimization measured 12.07% / 11.94% of a 68000 frame
+  for normal NTSC/PAL audio service, including per-frame status polling. The
+  3000-frame DMA/SFX stress profiles measured 12.90% / 12.63%, with zero faults
+  or underruns. The fresh NTSC baseline was 15.27%; the 9% target remains unmet.
+  Control latency, strict DAC jitter and fresh-patch onset alignment remain open.
 - Physical hardware acceptance is outstanding. Linux/macOS source builds and
   standalone editor packaging have not been natively verified.
 

@@ -5,8 +5,8 @@ from pathlib import Path
 import subprocess
 ROOT=Path(__file__).resolve().parents[1]
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--source',type=Path,required=True);p.add_argument('--vcvars',type=Path);a=p.parse_args()
-    out=ROOT/'out/trace-core';out.mkdir(parents=True,exist_ok=True)
+    p=argparse.ArgumentParser();p.add_argument('--source',type=Path,required=True);p.add_argument('--vcvars',type=Path);p.add_argument('--output-dir',type=Path);a=p.parse_args()
+    out=(a.output_dir or ROOT/'out/trace-core').resolve();out.mkdir(parents=True,exist_ok=True)
     original=(a.source/'core/sound/sound.c').read_text()
     declarations="""
 /* Calliope local validation modification: register-write callback. */
@@ -64,13 +64,14 @@ void z80_run(unsigned int cycles)""")
     assert anchor in main_cpu
     main_cpu=main_cpu.replace(anchor,anchor+"""
 extern unsigned char work_ram[65536];
-static unsigned long long clp_audio_cycles[32768];
+static unsigned long long clp_audio_cycles[0x200000];
 static unsigned int clp_audio_flag;
 static int clp_audio_enabled;
 __declspec(dllexport) void clp_audio_profile_reset(unsigned int flag) {
   memset(clp_audio_cycles,0,sizeof(clp_audio_cycles));
   clp_audio_enabled=flag<65535;clp_audio_flag=flag&65535;
 }
+__declspec(dllexport) unsigned int clp_audio_profile_slots(void) { return 0x200000; }
 __declspec(dllexport) const unsigned long long* clp_audio_profile_cycles(void) { return clp_audio_cycles; }
 """)
     anchor='  while (m68k.cycles < cycles)\n  {'
@@ -78,11 +79,11 @@ __declspec(dllexport) const unsigned long long* clp_audio_profile_cycles(void) {
     main_cpu=main_cpu.replace(anchor,anchor+'\n    unsigned int clp_start=m68k.cycles, clp_pc=REG_PC;\n    unsigned int clp_audio_active=clp_audio_enabled && (work_ram[clp_audio_flag]|work_ram[clp_audio_flag+1]);')
     anchor='    m68ki_instruction_jump_table[REG_IR]();\n    USE_CYCLES(CYC_INSTRUCTION[REG_IR]);'
     assert main_cpu.count(anchor)==1
-    main_cpu=main_cpu.replace(anchor,anchor+'\n    if (clp_audio_active && clp_pc<65536) clp_audio_cycles[clp_pc>>1] += m68k.cycles-clp_start;')
+    main_cpu=main_cpu.replace(anchor,anchor+'\n    if (clp_audio_active && clp_pc<0x400000) clp_audio_cycles[clp_pc>>1] += m68k.cycles-clp_start;')
     (out/'m68kcpu.c').write_text(main_cpu,newline='\r\n')
     # Reuse the public pinned-core build, replacing only copied instrumented files.
     cmake=(ROOT/'editor/core/CMakeLists.txt').read_text()
-    additions=[]
+    additions=['list(REMOVE_ITEM sources "${CMAKE_CURRENT_BINARY_DIR}/m68kcpu-profile.c")']
     for relative,name in (('core/sound/sound.c','sound.c'),('core/sound/psg.c','psg.c'),('core/z80/z80.c','z80.c'),('core/m68k/m68kcpu.c','m68kcpu.c')):
         additions += ['list(REMOVE_ITEM sources "${CORE_SOURCE}/'+relative+'")',
                       'list(APPEND sources "'+(out/name).as_posix()+'")']

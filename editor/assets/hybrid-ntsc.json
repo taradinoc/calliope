@@ -5,8 +5,8 @@
   "pcm_timer": 1020,
   "bank_address": 1048576,
   "mailbox_address": 16711788,
-  "bank_length_address": 66758,
-  "sha256": "f3411a24482b94ed3258e16c91a620df1cc64e2adb98ef383f4bdf12d9934c27",
+  "bank_length_address": 70342,
+  "sha256": "e39a1ac2c505f2a154285e75ecdcd5a3da8412a9c5a63bb3763c0065e01ecc83",
   "bank_revision": 12,
   "initialization_status_offset": 26,
   "cpu_load": {

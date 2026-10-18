@@ -25,6 +25,12 @@ extern const u8 clp_driver[8192];
 #define CLH_PER_PAGE 76
 #define CLH_RECORD_BYTES 3
 #endif
+/* Bound hot functions to keep SGDK LTO from spilling the whole service loop. */
+#ifdef CALLIOPE_HOST_TEST
+#define CLH_NOINLINE __declspec(noinline)
+#else
+#define CLH_NOINLINE __attribute__((noinline, noclone))
+#endif
 static const u8 *bankData;
 static u32 bankSize, partMeta;
 static u16 request, selectedParts, mutedGroups, partGroups[16];
@@ -84,7 +90,8 @@ static u16 tickRate, credit, tempoScale, tempoPending, tempoMarker;
 static u8 tempoFlags;
 static u32 orders, pc, songTick, ageCounter, pcmEnd, elapsedTick;
 static u32 channelPc[16];
-static u8 channelWait[16], channelDecode;
+static u16 channelWait[16];
+static u8 channelDecode, channelOrder[16];
 static u16 waitTicks, pcmToken;
 static u8 pcmOwner, pcmPriority, pcmMusicPriority;
 static u8 commands[16][8], commandW, commandR;
@@ -96,7 +103,8 @@ static u16 publishBytes;
 static const u8 *publishSource;
 static volatile u8 *publishTarget;
 static u16 recordCount, publishRecord;
-static u8 header[CLH_HEADER], pendingRender, localFault, initialized;
+#define header (renderPages[0])
+static u8 pendingRender, localFault, initialized;
 static u8 transportW;
 static u16 fragment;
 static u32 timeline, played, clockRemainder, masterClock, nextTimeline, clockFraction, nextRemainder;
@@ -180,7 +188,7 @@ static void queueCue(u16 id, u16 parameter)
     cue->event.generation = songGeneration;
     cue->event.tick = songTick;
 }
-static void deliverCues(void)
+static CLH_NOINLINE void deliverReadyCues(void)
 {
     while (scheduledR != scheduledW && scheduled[scheduledR & 255].deadline <= played)
     {
@@ -190,6 +198,11 @@ static void deliverCues(void)
         else
             delivered[eventW++ & 15] = *e;
     }
+}
+static void deliverCues(void)
+{
+    if (scheduledR != scheduledW && scheduled[scheduledR & 255].deadline <= played)
+        deliverReadyCues();
 }
 static void emit(u8 type, u8 a, u8 b, u8 c)
 {
@@ -278,7 +291,7 @@ static u8 audible(ClhVoice *v, u8 sfx)
 }
 static void levels(ClhVoice *v, u8 sfx)
 {
-    u8 i, ch = v->slot % 3, port = v->slot;
+    u8 i, ch = v->slot < 3 ? v->slot : v->slot - 3, port = v->slot;
     for (i = 0; i < 4; i++)
     {
         u16 value = v->tl[i];
@@ -290,7 +303,7 @@ static void levels(ClhVoice *v, u8 sfx)
 static void patch(ClhVoice *v, u8 sfx, u8 force)
 {
     const u8 *p;
-    u8 g, i, ch = v->slot % 3;
+    u8 g, i, ch = v->slot < 3 ? v->slot : v->slot - 3;
     if (v->patch >= bankData[8])
     {
         localFault = 2;
@@ -320,13 +333,14 @@ static void patch(ClhVoice *v, u8 sfx, u8 force)
 }
 static void frequency(ClhVoice *v)
 {
-    u8 ch = v->slot % 3;
+    u8 ch = v->slot < 3 ? v->slot : v->slot - 3;
+    u8 type = v->slot < 3 ? 1 : 2;
     if (fmFrequencyValid[v->slot] && fmFrequencies[v->slot] == v->frequency)
         return;
     fmFrequencyValid[v->slot] = 1;
     fmFrequencies[v->slot] = v->frequency;
-    ym(v->slot, (u8)(0xa4 + ch), (u8)(v->frequency >> 8));
-    ym(v->slot, (u8)(0xa0 + ch), (u8)v->frequency);
+    emit(type, (u8)(0xa4 + ch), (u8)(v->frequency >> 8), 0);
+    emit(type, (u8)(0xa0 + ch), (u8)v->frequency, 0);
 }
 static void tone(ClhVoice *v, u8 sfx)
 {
@@ -495,6 +509,14 @@ static void startMusic(u32 descriptor, u16 generation)
         v->enabled = bankData[meta + i * 4 + 3];
         v->patch = 255;
         v->volume = 15;
+    }
+    /* Cache stable PCM-first traversal for every tick in this song. */
+    {
+        u8 n = 0, pass;
+        for (pass = 0; pass < 2; pass++)
+            for (i = 0; i < voiceCount; i++)
+                if ((voices[i].slot == 9) == (pass == 0))
+                    channelOrder[n++] = i;
     }
 }
 static void startPcm(u32 descriptor, u8 source, u8 priority, u16 token)
@@ -729,10 +751,14 @@ static const u8 operandBytes[0x3a] = {
     1,
     1,
 };
-static void decode(u8 context)
+#ifndef CALLIOPE_HOST_TEST
+__attribute__((always_inline)) static inline
+#else
+static
+#endif
+void decodeStream(u8 context, u32 *stream, u16 *musicWait, ClhVoice *musicVoice, u8 channelMode)
 {
     ClhSfx *e = context ? &effects[context - 1] : 0;
-    u32 *stream = context ? &e->pc : &pc;
     u16 budget = 1024;
     const u8 *cursor, *end = bankData + bankSize;
     if (*stream >= bankSize)
@@ -753,8 +779,14 @@ static void decode(u8 context)
             goto done;
         }
         op = *cursor++;
+        /* Compact music waits have no operands or voice state. */
+        if (!context && op >= 0x80 && op < 0xfd)
+        {
+            *musicWait = op - 0x7f;
+            goto done;
+        }
         n = op >= 0x40 && op < 0x50 ? 1 : (op < sizeof(operandBytes) ? operandBytes[op] : 0);
-        if (!context && channelDecode && (op == 0x10 || op == 0x11 || op == 0x13 || op == 0x16 || op == 0x36 || op == 0x37))
+        if (!context && channelMode && (op == 0x10 || op == 0x11 || op == 0x13 || op == 0x16 || op == 0x36 || op == 0x37))
             --n;
         if ((u32)(end - cursor) < n)
         {
@@ -763,13 +795,10 @@ static void decode(u8 context)
         }
         a = cursor;
         cursor += n;
-        v = context ? &e->tone : (selectedVoice < voiceCount ? &voices[selectedVoice] : 0);
-        if (!context && op >= 0x80 && op < 0xfd)
+        v = context ? &e->tone : musicVoice;
+        switch (op)
         {
-            waitTicks = op - 0x7f;
-            goto done;
-        }
-        if (op == 0)
+        case 0:
         {
             u8 delay = a[0];
             if (!delay)
@@ -780,10 +809,10 @@ static void decode(u8 context)
             if (context)
                 e->wait = delay;
             else
-                waitTicks = delay;
+                *musicWait = delay;
             goto done;
         }
-        if (op == 0x15)
+        case 0x15:
         {
             u8 f = a[0];
             u16 m = le16(a + 1);
@@ -791,27 +820,27 @@ static void decode(u8 context)
                 boundary(f, m);
             continue;
         }
-        if (op == 0x20)
+        case 0x20:
         {
             u16 id = le16(a), parameter = le16(a + 2);
             queueCue(id, parameter);
             continue;
         }
-        if (op == 0x34)
+        case 0x34:
         {
             tickRate = le16(a);
             credit = 0;
             continue;
         }
         /* The conductor has no selected voice. LFO is a global YM setting. */
-        if (op == 0x39)
+        case 0x39:
         {
             ym(0, 0x22, a[0]);
             continue;
         }
-        if (op == 0xfd)
+        case 0xfd:
         {
-            if (context || channelDecode)
+            if (context || channelMode)
             {
                 localFault = 6;
                 goto done;
@@ -835,9 +864,9 @@ static void decode(u8 context)
             cursor = bankData + pc;
             continue;
         }
-        if (op == 255)
+        case 255:
         {
-            if (!context && channelDecode)
+            if (!context && channelMode)
             {
                 localFault = 6;
                 goto done;
@@ -863,6 +892,8 @@ static void decode(u8 context)
             }
             goto done;
         }
+        default: break;
+        }
         if (context && e->type == 8)
         {
             if ((op != 0x10 && op != 0x11 && op != 0x13 && op != 0x36 && op != 0x37 && op != 0x16) || a[0] >= 5 || !(e->mask & (1 << a[0])))
@@ -874,7 +905,7 @@ static void decode(u8 context)
         }
         if (op >= 0x40 && op < 0x50)
         {
-            if (context || channelDecode || (op & 15) >= voiceCount)
+            if (context || channelMode || (op & 15) >= voiceCount)
             {
                 localFault = 5;
                 goto done;
@@ -886,7 +917,13 @@ static void decode(u8 context)
             localFault = 7;
             goto done;
         }
-        if (op == 0x10 || (op >= 0x40 && op < 0x50))
+        switch (op)
+        {
+        case 0x40: case 0x41: case 0x42: case 0x43:
+        case 0x44: case 0x45: case 0x46: case 0x47:
+        case 0x48: case 0x49: case 0x4a: case 0x4b:
+        case 0x4c: case 0x4d: case 0x4e: case 0x4f:
+        case 0x10:
         {
             const u8 *p;
             u8 i;
@@ -902,8 +939,9 @@ static void decode(u8 context)
             v->sensitivity = p[31];
             if (audible(v, context) && !dirty[v->slot])
                 patch(v, context, 0);
+            break;
         }
-        else if (op == 0x11 || op == 0x36)
+        case 0x11: case 0x36:
         {
             v->frequency = le16(a + (context ? 1 : 0));
             if (op == 0x11)
@@ -915,14 +953,16 @@ static void decode(u8 context)
                 else if (v->gate && !dirty[v->slot])
                     frequency(v);
             }
+            break;
         }
-        else if (op == 0x13)
+        case 0x13:
         {
             v->gate = 0;
             if (audible(v, context))
                 keyoff(v->slot);
+            break;
         }
-        else if (op == 0x37)
+        case 0x37:
         {
             u8 i;
             for (i = 0; i < 4; i++)
@@ -930,8 +970,9 @@ static void decode(u8 context)
             v->sensitivity = a[context ? 5 : 4];
             if (audible(v, context) && !dirty[v->slot])
                 levels(v, context);
+            break;
         }
-        else if (op == 0x16)
+        case 0x16:
         {
             if (v->slot >= 5)
             {
@@ -941,8 +982,9 @@ static void decode(u8 context)
             v->pan = a[context ? 1 : 0];
             if (audible(v, context) && !dirty[v->slot])
                 ym(v->slot, (u8)(0xb4 + v->slot % 3), v->pan);
+            break;
         }
-        else if (op == 0x30 || op == 0x35)
+        case 0x30: case 0x35:
         {
             u8 count = a[0], latch = 0, i, hasPitch = 0;
             const u8 *values = cursor;
@@ -1018,8 +1060,9 @@ static void decode(u8 context)
                     }
                 }
             }
+            break;
         }
-        else if (op == 0x33)
+        case 0x33:
         {
             u8 control = a[0], vol = a[1];
             if (context)
@@ -1032,22 +1075,26 @@ static void decode(u8 context)
                 noise(v, context, (control & 8) != 0);
                 dirty[8] = 0;
             }
+            break;
         }
-        else if (op == 0x31)
+        case 0x31:
         {
             u32 descriptor = le24(a);
             if (audible(v, context))
                 startPcm(descriptor, 0, 0, 0);
+            break;
         }
-        else if (op == 0x32)
+        case 0x32:
         {
             if (audible(v, context))
                 pcmStop(1);
+            break;
         }
-        else
+        default:
         {
             localFault = 9;
             goto done;
+        }
         }
     }
     if (!budget)
@@ -1055,6 +1102,22 @@ static void decode(u8 context)
 done:
     *stream = (u32)(cursor - bankData);
 }
+static void decode(u8 context)
+{
+    decodeStream(context, context ? &effects[context - 1].pc : &pc,
+                 &waitTicks, selectedVoice < voiceCount ? &voices[selectedVoice] : 0,
+                 channelDecode);
+}
+static CLH_NOINLINE void decodeMusic(void)
+{
+    decodeStream(0, &pc, &waitTicks, 0, 0);
+}
+static CLH_NOINLINE void decodeChannel(u16 i)
+{
+    selectedVoice = (u8)i;
+    decodeStream(0, &channelPc[i], &channelWait[i], &voices[i], 1);
+}
+static CLH_NOINLINE void decodeEffect(u8 context) { decode(context); }
 static void controls(void)
 {
     while (commandR != commandW)
@@ -1154,10 +1217,25 @@ static void controls(void)
         }
     }
 }
-static void render(void)
+#ifndef CALLIOPE_HOST_TEST
+extern u16 clh_ready(u16 *waits, const u8 *traversal, u32 count, u8 *ready);
+#else
+static u16 clh_ready(u16 *waits, const u8 *traversal, u32 count, u8 *ready)
+{
+    u16 at, n = 0;
+    for (at = 0; at < count; at++)
+    {
+        u8 i = traversal[at];
+        if (!waits[i] || !--waits[i])
+            ready[n++] = i;
+    }
+    return n;
+}
+#endif
+static CLH_NOINLINE void render(void)
 {
     u8 i;
-    clear(header, sizeof(header));
+    clear(header, CLH_HEADER);
     recordCount = publishRecord = 0;
     publishPage = 0;
     nextRemainder = clockRemainder + clockFraction;
@@ -1181,28 +1259,24 @@ static void render(void)
             {
                 selectedVoice = 255;
                 channelDecode = 0;
-                decode(0);
+                decodeMusic();
             }
             if (playing && !localFault)
             {
-                u8 pass;
+                u8 ready[16];
+                u16 at, readyCount;
                 u32 conductorPc = pc;
                 u16 conductorWait = waitTicks;
-                for (i = 0; i < voiceCount; i++)
-                    if (channelWait[i])
-                        --channelWait[i];
-                for (pass = 0; pass < 2; pass++)
-                    for (i = 0; i < voiceCount && !localFault; i++)
-                        if (!channelWait[i] && ((voices[i].slot == 9) == (pass == 0)))
-                        {
-                            pc = channelPc[i];
-                            waitTicks = 0;
-                            selectedVoice = i;
-                            channelDecode = 1;
-                            decode(0);
-                            channelPc[i] = pc;
-                            channelWait[i] = (u8)waitTicks;
-                        }
+                readyCount = clh_ready(channelWait, channelOrder, voiceCount, ready);
+                channelDecode = 1;
+                for (at = 0; at < readyCount; at++)
+                {
+                    i = ready[at];
+                    channelWait[i] = 0;
+                    decodeChannel(i);
+                    if (localFault)
+                        break;
+                }
                 pc = conductorPc;
                 waitTicks = conductorWait;
                 selectedVoice = 255;
@@ -1216,7 +1290,7 @@ static void render(void)
             if (effects[i].wait)
                 --effects[i].wait;
             if (!effects[i].wait)
-                decode(i + 1);
+                decodeEffect(i + 1);
         }
     put16(header + 2, (u16)timeline);
     put16(header + 4, songGeneration);
@@ -1232,20 +1306,15 @@ static void render(void)
     pendingRender = 1;
 }
 /* Keep index arithmetic out of BUSREQ even under SGDK's LTO. */
-#ifdef CALLIOPE_HOST_TEST
-#define CLH_NOINLINE __declspec(noinline)
-#else
-#define CLH_NOINLINE __attribute__((noinline, noclone))
-#endif
 #ifndef CALLIOPE_HOST_TEST
 extern void clh_write1(volatile u8 *target, const volatile u8 *staged);
 extern u16 clh_read2(const volatile u8 *source);
-extern void clh_statusa(volatile u8 *raw);
-extern void clh_statusb(volatile u8 *raw);
-extern void clh_statusc(volatile u8 *raw);
+extern void clh_status_snapshot(volatile u8 *raw);
+extern void clh_write_blocks(volatile u8 *target, const u8 *source, u32 blocks);
 extern void clh_write8(volatile u8 *target, const volatile u8 *staged);
 extern void clh_write_pcm32(volatile u8 *target, const u8 *source, u32 publication);
 #endif
+#ifdef CALLIOPE_HOST_TEST
 static CLH_NOINLINE void copy8(volatile u8 *target, const volatile u8 *staged)
 {
 #ifndef CALLIOPE_HOST_TEST
@@ -1264,6 +1333,7 @@ static CLH_NOINLINE void copy8(volatile u8 *target, const volatile u8 *staged)
     SYS_enableInts();
 #endif
 }
+#endif
 static CLH_NOINLINE void copy1(volatile u8 *target, u8 value)
 {
 #ifndef CALLIOPE_HOST_TEST
@@ -1363,7 +1433,7 @@ static CLH_NOINLINE u16 consumers(void)
     return raw[0] | ((u16)raw[1] << 8);
 #endif
 }
-static u8 publish(void)
+static u8 publishSpan(u16 limit)
 {
     if (!fragment)
     {
@@ -1372,7 +1442,8 @@ static u8 publish(void)
         if ((u8)(transportW - (u8)positions) >= 8 || (u8)(transportW - (u8)(positions >> 8)) >= 8)
             return 0;
         count = (u8)(recordCount - publishRecord > CLH_PER_PAGE ? CLH_PER_PAGE : recordCount - publishRecord);
-        memcpy(page, header, CLH_HEADER);
+        if (publishPage)
+            memcpy(page, header, CLH_HEADER);
         page[0] = count;
 #if !(defined(CALLIOPE_HOST_PCM) && CALLIOPE_HOST_PCM)
         page[26] = (publishRecord + count == recordCount);
@@ -1382,13 +1453,22 @@ static u8 publish(void)
         publishSource = page;
         publishTarget = M - 0xd00 + ((u16)(transportW & 7) << 8);
     }
-    /* Transfer cursors are planned once per page, outside every bus hold. */
-    copy8(publishTarget, publishSource);
-    publishTarget += 8;
-    publishSource += 8;
-    fragment += 8;
+    /* Batch setup only: each eight-byte BUSREQ hold still releases the Z80. */
+    u16 blocks = (publishBytes - fragment + 7) >> 3;
+    if (blocks > limit)
+        blocks = limit;
+#ifndef CALLIOPE_HOST_TEST
+    clh_write_blocks(publishTarget, publishSource, blocks);
+#else
+    u16 block;
+    for (block = 0; block < blocks; block++)
+        copy8(publishTarget + block * 8, publishSource + block * 8);
+#endif
+    publishTarget += blocks * 8;
+    publishSource += blocks * 8;
+    fragment += blocks * 8;
     if (fragment < publishBytes)
-        return 1;
+        return (u8)blocks;
     copy1(M + 0x180, ++transportW);
     fragment = 0;
     ++publishPage;
@@ -1400,8 +1480,11 @@ static u8 publish(void)
         clockRemainder = nextRemainder;
         timeline = nextTimeline;
     }
-    return 1;
+    return (u8)blocks;
 }
+#ifdef CALLIOPE_HOST_TEST
+static u8 publish(void) { return publishSpan(1); }
+#endif
 static bool sendAt(u8 op, u8 flags, u16 generation, u32 argument)
 {
     u8 *c;
@@ -1461,14 +1544,22 @@ void clp_update(void)
 #if defined(CALLIOPE_HOST_PCM) && CALLIOPE_HOST_PCM
     uploadPcm();
 #endif
-    while (budget-- && (pendingRender || timeline < goal))
+    while (budget && (pendingRender || timeline < goal))
     {
         if (!pendingRender)
             render();
-        if (!publish())
+        u16 limit = 8 - batch;
+        u8 copied;
+        if (limit > budget)
+            limit = budget;
+        copied = publishSpan(limit);
+        if (!copied)
             break;
-        if (!(++batch & 7))
+        budget -= copied;
+        batch += copied;
+        if (batch == 8)
         {
+            batch = 0;
             refreshClock();
 #if defined(CALLIOPE_HOST_PCM) && CALLIOPE_HOST_PCM
             uploadPcm();
@@ -1708,6 +1799,7 @@ u16 clp_poll(ClpEvent *events, u16 capacity)
     }
     return n;
 }
+#ifdef CALLIOPE_HOST_TEST
 static CLH_NOINLINE u8 statusA(volatile u8 *raw)
 {
 #ifndef CALLIOPE_HOST_TEST
@@ -1760,15 +1852,22 @@ static CLH_NOINLINE void statusC(volatile u8 *raw)
     SYS_enableInts();
 #endif
 }
+#endif
 ClpStatus clp_status(void)
 {
     volatile u8 raw[14];
     ClpStatus *s = &cachedStatus;
+#ifndef CALLIOPE_HOST_TEST
+    clh_status_snapshot(raw);
+    {
+        if (!(raw[0] & 1) && raw[0] == raw[1])
+#else
     if (!(statusA(raw) & 1))
     {
         statusB(raw);
         statusC(raw);
         if (raw[0] == raw[1])
+#endif
         {
             s->ready = raw[2];
             s->fault = raw[3];

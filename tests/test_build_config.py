@@ -9,10 +9,18 @@ import unittest
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'tools'))
 from configure import resolve,prepare
+from toolchain import sgdk_path, sgdk_tool
 SDK=Path(os.environ.get('GDK','__sgdk_not_configured__'))
 
 
-@unittest.skipUnless((SDK/'bin/gcc.exe').exists() and (SDK/'bin/sjasm.exe').exists(),'SGDK required for build-configuration tests')
+try:
+    SDK = sgdk_path(SDK)
+    SDK_READY = True
+except ValueError:
+    SDK_READY = False
+
+
+@unittest.skipUnless(SDK_READY,'SGDK required for build-configuration tests')
 class BuildConfig(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory(prefix='calliope config ');self.root=Path(self.temp.name)
@@ -49,7 +57,7 @@ class BuildConfig(unittest.TestCase):
         self.assertEqual(image,(out/'driver.bin').read_bytes())
     def test_generated_header_catches_mismatched_c_flags(self):
         out=self.root/'build';prepare(SDK,self.header,out,None)
-        result=subprocess.run([str(SDK/'bin/gcc.exe'),'-B'+str(SDK/'bin')+'/','-E','-x','c','-I'+str(ROOT/'include'),'-include',str(out/'calliope_build.h'),'-DCALLIOPE_HYBRID=0','-'],input='',capture_output=True,text=True)
+        result=subprocess.run([str(sgdk_tool(SDK, 'gcc')),'-B'+str(SDK/'bin')+'/','-E','-x','c','-I'+str(ROOT/'include'),'-include',str(out/'calliope_build.h'),'-DCALLIOPE_HYBRID=0','-'],input='',capture_output=True,text=True)
         self.assertNotEqual(result.returncode,0);self.assertIn('disagrees',result.stderr)
     def test_make_header_and_command_overrides(self):
         # SGDK Make 3.81 must restart once, keep unchanged timestamps, and export
@@ -58,7 +66,7 @@ class BuildConfig(unittest.TestCase):
         # Keep generated Make paths relative: quoted subprocess arguments handle
         # the temporary project's root and configuration header spaces.
         make.write_text('GDK := '+sdk+'\nCALLIOPE_HOME := '+home+'\nCALLIOPE_PYTHON := '+sys.executable+'\nCALLIOPE_CONFIG_HEADER := project audio.h\nCALLIOPE_BUILD_DIR := output\nCALLIOPE_DRIVER_ASM := driver.s\nOUT := output\ninclude '+home+'/make/calliope.mk\nprobe: calliope-config\n\t"$(CALLIOPE_PYTHON)" -c "import os;print(\'TIMER=\'+os.environ[\'CALLIOPE_PCM_TIMER\'])"\n')
-        command=[str(SDK/'bin/make.exe'),'-f',str(make),'probe']
+        command=[str(sgdk_tool(SDK, 'make')),'-f',str(make),'probe']
         result=subprocess.run(command,cwd=self.root,capture_output=True,text=True,timeout=30)
         self.assertEqual(result.returncode,0,result.stdout+result.stderr);self.assertIn('TIMER=1020',result.stdout)
         first=(self.root/'output/calliope_build.h').stat().st_mtime_ns

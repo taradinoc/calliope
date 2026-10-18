@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from toolchain import sgdk_path, core_path, furnace_path, msvc_path
+from toolchain import sgdk_path, sgdk_tool, core_path, furnace_path, msvc_path
 from consumer import finalize, prepare_bank
 
 
@@ -21,7 +21,7 @@ class Portability(unittest.TestCase):
     def test_sdk_explicit_over_environment_and_missing_tools(self):
         sdk = self.root / 'sdk'
         (sdk / 'bin').mkdir(parents=True)
-        with patch.dict(os.environ, {'GDK': str(self.root / 'absent')}):
+        with patch('toolchain.sys.platform', 'win32'), patch.dict(os.environ, {'GDK': str(self.root / 'absent')}):
             with self.assertRaisesRegex(ValueError, 'SGDK tool missing'):
                 sgdk_path(sdk)
             for name in ('gcc.exe', 'sjasm.exe', 'make.exe'):
@@ -31,14 +31,39 @@ class Portability(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'Set GDK'):
                 sgdk_path()
 
+    def test_linux_tools_use_native_path_and_compiler_prefix(self):
+        sdk = self.root / 'sdk'
+        with patch('toolchain.sys.platform', 'linux'), patch.dict(os.environ, {'PREFIX': 'custom-m68k-'}), patch('toolchain.shutil.which') as which:
+            which.side_effect = lambda name: str(self.root / name)
+            self.assertEqual(sgdk_tool(sdk, 'gcc'), self.root / 'custom-m68k-gcc')
+            self.assertEqual(sgdk_tool(sdk, 'sjasm'), self.root / 'sjasm')
+            self.assertEqual(sgdk_tool(sdk, 'make'), self.root / 'make')
+            self.assertEqual([call.args[0] for call in which.call_args_list],
+                             ['custom-m68k-gcc', 'sjasm', 'make'])
+
+    def test_linux_does_not_fall_back_to_windows_tools(self):
+        sdk = self.root / 'sdk'
+        (sdk / 'bin').mkdir(parents=True)
+        for name in ('gcc.exe', 'make.exe', 'sjasm.exe'):
+            (sdk / 'bin' / name).touch()
+        with patch('toolchain.sys.platform', 'linux'), patch('toolchain.shutil.which', return_value=None):
+            with self.assertRaisesRegex(ValueError, 'install native'):
+                sgdk_path(sdk)
+
+    def test_linux_default_compiler_matches_sgdk_make(self):
+        with patch('toolchain.sys.platform', 'linux'), patch.dict(os.environ, {}, clear=True), patch('toolchain.shutil.which', return_value='/usr/bin/m68k-elf-gcc') as which:
+            self.assertEqual(sgdk_tool(self.root, 'gcc'), Path('/usr/bin/m68k-elf-gcc').resolve())
+            which.assert_called_once_with('m68k-elf-gcc')
+
     def test_optional_dependencies_accept_paths_with_spaces(self):
-        core = self.root / 'custom.dll'
+        suffix = '.dll' if sys.platform == 'win32' else '.dylib' if sys.platform == 'darwin' else '.so'
+        core = self.root / ('custom_libretro' + suffix)
         core.touch()
         with patch.dict(os.environ, {'CALLIOPE_CORES_DIR': str(self.root),
                                      'CALLIOPE_FURNACE': str(core),
                                      'CALLIOPE_VCVARS': str(core)}):
             self.assertEqual(core_path(core), core.resolve())
-            self.assertEqual(core_path('custom.dll'), core.resolve())
+            self.assertEqual(core_path(core.name), core.resolve())
             self.assertEqual(furnace_path(), core.resolve())
             self.assertEqual(msvc_path(), core.resolve())
         with patch.dict(os.environ, {}, clear=True):

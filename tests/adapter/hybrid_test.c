@@ -302,12 +302,20 @@ static void pcmPriorities(void)
 }
 static void packets(void)
 {
-    u16 i;u8 page;
+    u16 i;u8 page,batchMode;
+    for(batchMode=0;batchMode<2;batchMode++) {
     reset();recordCount=publishRecord=fragment=0;publishPage=0;transportW=250;
     M[0x181]=M[0x182]=250;
     for(i=0;i<200;i++) emit(3,(u8)i,0,0);
     put16(header+2,1234);pendingRender=1;nextTimeline=4321;
-    while(pendingRender) assert(publish());
+    while(pendingRender) {
+        if(batchMode) {
+            u16 previousFragment=fragment, previousPage=publishPage;
+            u8 copied=publishSpan(8);
+            assert(copied && copied<=8);
+            if(publishPage==previousPage) assert(fragment==previousFragment+copied*8);
+        } else assert(publish());
+    }
     assert(transportW==253 && M[0x180]==253 && timeline==4321);
     for(page=0;page<3;page++) {
         u16 first=(u16)page*CLH_PER_PAGE;u8 count=(u8)(page==2?200-first:CLH_PER_PAGE);
@@ -315,6 +323,10 @@ static void packets(void)
         assert(bytes[0]==count && (bytes[2]|((u16)bytes[3]<<8))==1234);
         for(i=0;i<count;i++) assert(bytes[CLH_HEADER+i*3]==3 && bytes[CLH_HEADER+i*3+1]==(u8)(first+i));
     }
+    }
+    /* A full ring cannot consume the caller's fragment quota or publish bytes. */
+    reset();transportW=8;pendingRender=1;
+    assert(!publishSpan(8) && !fragment && transportW==8 && pendingRender);
     reset();recordCount=0;for(i=0;i<CLH_RECORDS;i++) emit(3,(u8)i,0,0);
     assert(!localFault);emit(3,0,0,0);assert(localFault==1);
 }

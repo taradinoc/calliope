@@ -7,16 +7,34 @@ import subprocess
 import sys
 
 
+def sgdk_tool(sdk, tool):
+    """Use SGDK's Windows binaries or its native Unix tool names."""
+    sdk = Path(sdk)
+    if sys.platform == "win32":
+        command = sdk / "bin" / (tool + ".exe")
+        if command.is_file():
+            return command
+    else:
+        name = os.environ.get("PREFIX", "m68k-elf-") + "gcc" if tool == "gcc" else tool
+        command = shutil.which(name)
+        if command:
+            return Path(command).resolve()
+    raise ValueError(
+        f"SGDK tool missing: {tool}; "
+        + (f"check {sdk / 'bin'} and GDK/--sgdk."
+           if sys.platform == "win32" else
+           f"install native {name} and add it to PATH. Windows .exe tools "
+           "cannot be used for a native Linux build.")
+    )
+
+
 def sgdk_path(explicit=None):
     value = explicit or os.environ.get("GDK")
     if not value:
         raise ValueError("Set GDK to your SGDK directory, or pass --sgdk PATH.")
     path = Path(value).expanduser().resolve()
-    for name in ("gcc.exe", "sjasm.exe", "make.exe"):
-        if not (path / "bin" / name).is_file():
-            raise ValueError(
-                f'SGDK tool missing: {path / "bin" / name}; set GDK or --sgdk PATH.'
-            )
+    for tool in ("gcc", "sjasm", "make"):
+        sgdk_tool(path, tool)
     return path
 
 
