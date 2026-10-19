@@ -176,3 +176,19 @@ repeated mode switches, missing devices, and worker termination. A build on one
 OS does not establish support on the other native targets.
 
 See `editor/THIRD_PARTY.md` and bundled component notices before redistribution.
+
+## Verify sample sharing
+
+Open **Sample sharing** and click **Refresh sample sharing** to compile with the
+selected region and driver mode. The sortable grid lists used Furnace sample
+variants by song/SFX ID and name, sample ID and name, and converted audio offset.
+Rows with the same audio offset share one stored audio block. **References** is
+the number of rows sharing that block, rather than the number of note triggers.
+Hover over a cell to see the source file path.
+
+A sample can have multiple rows when pitch or gain produces different conversions.
+Compare source rate and gain to investigate unexpected mismatches. Descriptor
+offsets identify playback settings: different loops can use different descriptors
+while still sharing audio. All offsets are relative to the compiled bank and can
+change after recompilation. Unused samples are omitted. Preview and export also
+refresh this view; bank, source, or profile changes clear the previous results.

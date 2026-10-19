@@ -386,6 +386,8 @@ def compile_bank(
     effects = []
     sample_cache = {}
     sample_report = []
+    sample_details = {}
+    sample_references = set()
     debug = []
 
     def pack_effect(stream, item, module, sub, channels):
@@ -1242,22 +1244,30 @@ def compile_bank(
                                         + ptr(loop[1])
                                     )
                                     sample_cache[key] = pack.add(descriptor)
-                                    sample_report.append(
-                                        {
-                                            "source": str(source),
-                                            "sample": index,
-                                            "note": cell.note,
-                                            "source_rate": rate,
-                                            "gain": gain,
-                                            "clipped_samples": info["clipped_samples"],
-                                            "legacy": voice.mode == 1,
-                                            "descriptor": sample_cache[key],
-                                            "offset": address,
-                                            "bytes": len(encoded),
-                                            "rate": info["rate"],
-                                            "loop": info["loop"],
-                                        }
-                                    )
+                                    sample_details[key] = {
+                                        "source": str(source),
+                                        "sample": index,
+                                        "note": cell.note,
+                                        "source_rate": rate,
+                                        "gain": gain,
+                                        "clipped_samples": info["clipped_samples"],
+                                        "legacy": voice.mode == 1,
+                                        "descriptor": sample_cache[key],
+                                        "offset": address,
+                                        "bytes": len(encoded),
+                                        "rate": info["rate"],
+                                        "loop": info["loop"],
+                                    }
+                                reference = (category, item["id"], key)
+                                if reference not in sample_references:
+                                    sample_references.add(reference)
+                                    sample_report.append(dict(
+                                        sample_details[key],
+                                        category=category,
+                                        resource_id=item["id"],
+                                        resource_name=item.get("name", ""),
+                                        sample_name=sample.get("name", ""),
+                                    ))
                                 payload.append(0x31)
                                 payload.extend(ptr(sample_cache[key]))
                             if pcm_delay:

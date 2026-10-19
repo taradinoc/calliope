@@ -1,5 +1,6 @@
 """Desktop bank authoring, compilation and actual-driver audition UI."""
 
+from collections import Counter
 import base64
 import copy
 import json
@@ -32,6 +33,8 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QAbstractItemView,
     QProgressBar,
+    QTableWidget,
+    QTableWidgetItem,
 )
 from .audio import AudioOutput
 from .document import Document
@@ -135,6 +138,31 @@ class EditorWindow(QMainWindow):
         apply.clicked.connect(self.apply_json)
         jl.addWidget(apply)
         self.tabs.addTab(json_tab, "Bank JSON")
+        samples_tab = QWidget()
+        samples_layout = QVBoxLayout(samples_tab)
+        refresh_samples = QPushButton("Refresh sample sharing")
+        refresh_samples.clicked.connect(lambda: self.start_job("samples"))
+        samples_layout.addWidget(refresh_samples)
+        self.samples_summary = QLabel("Refresh to compile the bank and inspect sample sharing.")
+        self.samples_summary.setWordWrap(True)
+        samples_layout.addWidget(self.samples_summary)
+        explanation = QLabel(
+            "Each row is a used song/sample conversion variant. References counts rows sharing "
+            "the same audio offset (including SFX). Offsets are relative to the compiled bank. "
+            "Different descriptors can share audio with different loops. Unused samples are omitted."
+        )
+        explanation.setWordWrap(True)
+        samples_layout.addWidget(explanation)
+        self.samples_table = QTableWidget(0, 12)
+        self.samples_table.setHorizontalHeaderLabels([
+            "Type", "Song / SFX ID", "Song / SFX name", "Sample ID", "Sample name",
+            "Audio offset", "References", "Descriptor", "Bytes", "Source rate", "Gain", "Loop",
+        ])
+        self.samples_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.samples_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.samples_table.setSortingEnabled(True)
+        samples_layout.addWidget(self.samples_table)
+        self.tabs.addTab(samples_tab, "Sample sharing")
         self.json.textChanged.connect(self.json_modified)
         self.tabs.currentChanged.connect(self.tab_changed)
         playback = QGroupBox("Genesis audition")
@@ -282,6 +310,7 @@ class EditorWindow(QMainWindow):
         return None
 
     def rebuild(self, selection=None):
+        self.invalidate_sample_sharing()
         selection = selection or self.selection() or ("bank", None)
         self.loading = True
         self.browser.clear()
@@ -796,7 +825,11 @@ class EditorWindow(QMainWindow):
                 "Discarded a result for an earlier document revision", 6000
             )
             return
-        if typ == "ready":
+        if typ in ("samples", "ready", "exported"):
+            self.show_sample_sharing(value["report"])
+        if typ == "samples":
+            self.statusBar().showMessage("Sample sharing refreshed")
+        elif typ == "ready":
             self.set_progress(None)
             self.player = process
             self.busy = False
@@ -842,6 +875,37 @@ class EditorWindow(QMainWindow):
             self.statusBar().showMessage("Operation failed")
         elif typ == "allocation":
             self.diagnostics.appendPlainText(value["message"])
+
+    def invalidate_sample_sharing(self):
+        self.samples_table.setRowCount(0)
+        self.samples_summary.setText("Bank, sources or profile changed. Refresh sample sharing to compile current inputs.")
+
+    def show_sample_sharing(self, report):
+        rows = report.get("music_samples", [])
+        counts = Counter(row["offset"] for row in rows)
+        self.samples_table.setSortingEnabled(False)
+        self.samples_table.setRowCount(len(rows))
+        for i, row in enumerate(rows):
+            values = [
+                "Song" if row["category"] == "songs" else "SFX",
+                row["resource_id"], row["resource_name"], row["sample"],
+                row["sample_name"], f"0x{row['offset']:06X}", counts[row["offset"]],
+                f"0x{row['descriptor']:06X}", row["bytes"], row["source_rate"],
+                row["gain"], str(row["loop"]) if row["loop"] else "None",
+            ]
+            for j, value in enumerate(values):
+                cell = QTableWidgetItem()
+                cell.setData(Qt.ItemDataRole.DisplayRole, value)
+                cell.setToolTip(row["source"])
+                self.samples_table.setItem(i, j, cell)
+        self.samples_table.setSortingEnabled(True)
+        self.samples_table.resizeColumnsToContents()
+        self.samples_summary.setText(
+            f"{len(rows)} sample variants / {len(counts)} unique audio blocks / "
+            f"{sum(n > 1 for n in counts.values())} shared blocks / "
+            f"{self.region.currentText()} / {self.mode.currentText()}. "
+            "Snapshot of the last compilation; refresh after editing bank or source files."
+        )
 
     def report(self, report):
         return (
@@ -904,6 +968,7 @@ class EditorWindow(QMainWindow):
         self.statusBar().showMessage("Operation cancelled")
 
     def profile_changed(self, *_):
+        self.invalidate_sample_sharing()
         if self.busy:
             self.cancel_operation()
         self.stop_preview()
@@ -1117,6 +1182,7 @@ class EditorWindow(QMainWindow):
                     stats[str(path)] = None
         if self.source_stats and stats != self.source_stats:
             self.document.revision += 1
+            self.invalidate_sample_sharing()
             self.statusBar().showMessage(
                 "Resource files changed; validate or restart preview to rebuild", 8000
             )

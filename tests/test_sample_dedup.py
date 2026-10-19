@@ -70,6 +70,19 @@ class SampleDedup(unittest.TestCase):
         module.samples = [dict(sample) for _ in range(index + 1)]
         return source, module
 
+    def test_same_source_is_reported_for_each_song(self):
+        source, module = self.pcm_module('shared.fur')
+        module.samples[0]['name'] = 'Kick'
+        manifest = self.manifest([source, source], voices=[{'channel': 5, 'slot': 'pcm'}])
+        with patch('calliope.compiler.parse', return_value=module):
+            _, report, _ = compile_bank(manifest)
+        a, b = report['music_samples']
+        self.assertEqual([a['resource_id'], b['resource_id']], [1, 2])
+        self.assertEqual([a['resource_name'], b['resource_name']], ['song0', 'song1'])
+        self.assertEqual(a['sample_name'], 'Kick')
+        self.assertEqual(a['offset'], b['offset'])
+        self.assertEqual(a['descriptor'], b['descriptor'])
+
     def test_shared_bytes_preserve_each_songs_loop_and_sample_index(self):
         source, first = self.pcm_module('first.fur')
         other, second = self.pcm_module('second.fur', loop=[64, 192], index=1)

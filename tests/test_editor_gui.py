@@ -27,6 +27,20 @@ class EditorGui(unittest.TestCase):
         self.window.json.document().setModified(False)
         self.window.close();self.app.processEvents()
 
+    def test_sample_sharing_counts_audio_even_with_different_descriptors(self):
+        sample = dict(category='songs', resource_id=1, resource_name='First',
+                      sample=0, sample_name='Kick', offset=128, descriptor=512,
+                      bytes=256, source_rate=22050, gain=1.0, loop=None, source='song.fur')
+        self.window.show_sample_sharing({'music_samples': [sample,
+            dict(sample, resource_id=2, resource_name='Second', descriptor=528)]})
+        table = self.window.samples_table
+        self.assertEqual(table.rowCount(), 2)
+        self.assertEqual([table.item(i, 6).text() for i in range(2)], ['2', '2'])
+        self.assertEqual(table.item(0, 5).text(), table.item(1, 5).text())
+        self.assertNotEqual(table.item(0, 7).text(), table.item(1, 7).text())
+        self.window.show_sample_sharing({'music_samples': []})
+        self.assertEqual(table.rowCount(), 0)
+
     def test_cpu_load_display_and_stop(self):
         status = dict(owners=[0]*9, effects=[], pcm_owner=0, tick=0,
                       fault=0, underruns=0, ack=0, queued=False, m68k_load=12.34)

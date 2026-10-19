@@ -100,6 +100,9 @@ def run():
         progress("Using cached bank…" if hit else "Bank compiled successfully…")
         if fingerprint(doc, base, region, mode) != key:
             raise ValueError("Inputs changed while compiling; retry")
+        if action == "samples":
+            send({"type": "samples", "revision": revision, "report": report})
+            return
         if action == "export":
             export_bank(
                 request["output"], data, report, header, request.get("document_path")
