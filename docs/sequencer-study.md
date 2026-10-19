@@ -10,7 +10,7 @@ The 24-byte song descriptor retains its order-table pointer. Each u24 order entr
 
 Byte 11 of the descriptor stores 1..16 voices in bits 0..4 and PCM synchronization in bit 7. All songs now have voice metadata. Ungrouped songs receive an all-enabled layout and one default arrangement.
 
-The conductor carries tempo, major-highlight bar boundaries, explicit markers, external cues and global YM LFO settings. PCM-synchronized songs also put patch setup in the conductor, using opcodes 40h..4Fh to identify the logical voice plus one instrument ID byte. Other songs keep patch selection in the channel pattern to preserve operation order. PCM channels run before chip channels; the driver retains the existing sample-frontier delivery of FM/PSG writes.
+The conductor carries tempo, major-highlight bar boundaries, explicit markers and global YM LFO settings. Patch selection stays in each channel pattern. Synchronized external cues run on the last non-PCM channel at the same logical tick, preserving source order; unsynchronized cues remain in the conductor. Legacy conductor patch opcodes 40h..4Fh remain readable. PCM channels run before chip channels; compact patch/note commands and FM/PSG register writes share sample-frontier delivery.
 
 Channel patterns bind their logical voice implicitly. FM music operations omit the redundant physical slot operand:
 
@@ -28,7 +28,7 @@ PSG/PCM operands retain their existing layouts. SFX instruction operands retain 
 
 Runtime requests support only `CLP_IMMEDIATE`, `CLP_NEXT_BAR` and `CLP_NEXT_MARKER`. Immediate means command consumption, including while paused; held notes are not retriggered during pause. Group controls apply immediately. Bar cues use the Furnace subsong's major (second) highlight interval, counted across orders; zero disables them. That interval represents a musical bar only if the author configured it that way. Explicit markers and external cues retain their authored positions. There are no periodic row/beat cues or tick-boundary requests.
 
-The pure Z80 code ceiling moves to 1700h; logical voice state moves to 1B00h..1BFFh. Channel cursors/waits occupy 1940h..197Fh and a PCM-first schedule occupies 1920h..192Fh. The write queue holds 64 records at 1A00h..1AFFh. The shared sequence cache refills twelve bytes from the current cursor, with DMA checks between four-byte groups. PCM lookahead and both guarded stacks retain their previous sizes. See authoring.md for the full allocation.
+The pure Z80 code ceiling moves to 1700h; logical voice state moves to 1B00h..1BFFh. Channel cursors/waits occupy 1940h..197Fh and a PCM-first schedule occupies 1920h..192Fh. The command queue holds 32 records at 1A00h..1A7Fh; bulk delivery helpers use 1A80h..1AF1h. The shared sequence cache refills twelve bytes from the current cursor, with DMA checks between four-byte groups. PCM lookahead and both guarded stacks retain their previous sizes. See authoring.md for the full allocation.
 
 The sequence-cache refill preserves IX across the PCM low-water refill. PCM
 uses IX for its source record, while PSG/FM effects use it for their instance.

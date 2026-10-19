@@ -4,9 +4,9 @@
   "region": "pal",
   "pcm_timer": 1016,
   "bank_address": 1048576,
-  "mailbox_address": 16711787,
-  "bank_length_address": 43030,
-  "sha256": "b60ca608338a00b9fffae9b0f67eac393c40bdd418f87083422b232349d5181b",
+  "mailbox_address": 16711791,
+  "bank_length_address": 35098,
+  "sha256": "21b1191a3b144b0b408995434298a82c9557639e5dde5094fa703f004dddd667",
   "bank_revision": 12,
   "initialization_status_offset": 26,
   "cpu_load": {

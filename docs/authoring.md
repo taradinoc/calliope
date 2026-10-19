@@ -172,7 +172,7 @@ The main code has a 5888-byte ceiling at 1700h. Sixteen logical voices use 1B00h
 
 A single 32-byte FM patch cache occupies 1700h..171Fh. Banks support up to 255 deduplicated patches (IDs 0..254); patch acquisition copies one bounded 32-byte block with DAC checks and DMA guards; a protected copy yields and restarts after remapping. This replaces the 512-byte resident patch array to make room for code, at the cost of extra cartridge reads when patches change. It does not establish worst-case scheduling feasibility.
 
-PCM descriptor scratch uses 1720h..172Fh, the refill guard/stack 1738h..177Fh, and four SFX states 1800h..183Fh. The sequence cache reserves 1900h..191Fh and refills twelve bytes from the current cursor. A PCM-first channel schedule uses 1920h..192Fh, the synchronization flag uses 193Eh, and sixteen four-byte channel cursor/wait records occupy 1940h..197Fh. Group/LFO helpers occupy 1980h..19FFh. Song patterns align to sixteen bytes and remain inside one 32 KB ROM bank. Context changes invalidate the shared cache. The synchronized write queue occupies 1A00h..1AFFh (64 four-byte records). Logical voices use 1B00h..1BFFh, the PCM FIFO 1C00h..1CFFh, and shared ABI 1D00h..1E7Fh. The main stack guard remains 1F78h..1F7Fh. The image remains 8192 bytes. Assembly rejects overlap; measured stack guards supplement, but do not prove, all possible stack bounds.
+PCM descriptor scratch uses 1720h..172Fh, the refill guard/stack 1738h..177Fh, and four SFX states 1800h..183Fh. The sequence cache reserves 1900h..191Fh and refills twelve bytes from the current cursor. A PCM-first channel schedule uses 1920h..192Fh, the synchronization flag uses 193Eh, and sixteen four-byte channel cursor/wait records occupy 1940h..197Fh. Group/LFO helpers occupy 1980h..19FFh. Song patterns align to sixteen bytes and remain inside one 32 KB ROM bank. Context changes invalidate the shared cache. The synchronized command queue occupies 1A00h..1A7Fh (32 four-byte records); patch/note delivery helpers occupy 1A80h..1AF1h. Logical voices use 1B00h..1BFFh, the PCM FIFO 1C00h..1CFFh, and shared ABI 1D00h..1E7Fh. The main stack guard remains 1F78h..1F7Fh. The image remains 8192 bytes. Assembly rejects overlap; measured stack guards supplement, but do not prove, all possible stack bounds.
 
 Tempo scaling uses command 13: boundary flags, scale in the argument low word,
 and marker in the high word. Pure-driver state occupies 1D22h..1D2Ah: active
@@ -294,12 +294,29 @@ EDxx delays FM channel row processing by xx ticks in music and SFX. ED00 process
 
 PCM resampling and the driver share timer-A value 1016: 1152 YM clocks per output sample. The build rejects a mismatch. Rates are 6658.38 Hz NTSC and 6597.65 Hz PAL. The 192-sample output target represents about 29 ms; its 255-sample maximum represents about 39 ms. PCM changes affect the generation frontier. Measured DAC rate/jitter and the unimplemented original-plan features are recorded in status.md.
 
-The main code ends at 159Eh (5534 bytes, ceiling 1600h). PSG ownership helpers occupy 1780h..17FCh; clock helpers start at 1860h. Assembly enforces their region ends. Physical FM level shadows remain compact eight-byte records at 18D8h..18FFh. PCM source state occupies 1EA0h..1EAFh; SFX ownership and end-frontier bookkeeping use 1EC0h..1EC2h. Sync queue head/tail are 16-bit addresses at 1EE8h..1EEBh, followed by count/capture/head-distance bytes at 1EECh..1EEEh. Installed physical FM instrument IDs use 1EF0h..1EF4h; equal-instrument installs retain key-off and TL updates but skip unchanged instrument registers. The main stack guard is back at 1F78h..1F7Fh, leaving a 128-byte stack. The image remains 8192 bytes.
+The main code ends at 159Eh (5534 bytes, ceiling 1600h). PSG ownership helpers occupy 1780h..17FCh; clock helpers start at 1860h. Assembly enforces their region ends. Physical FM level shadows remain compact eight-byte records at 18D8h..18FFh. PCM source state occupies 1EA0h..1EAFh; SFX ownership and end-frontier bookkeeping use 1EC0h..1EC2h. Sync queue head/tail are 16-bit addresses at 1EE8h..1EEBh, followed by count/capture/head-distance bytes at 1EECh..1EEEh. Silence TL constants use 1EF0h..1EF3h; adjacent-write ownership checks use 1EF5h..1EF6h. Instrument installs write the complete patch. The main stack guard is back at 1F78h..1F7Fh, leaving a 128-byte stack. The image remains 8192 bytes.
 
 Revision 11 retains the revision-10 alignment operation 38: mode 0 prepares a tick and marks its PCM generation frontier, mode 1 captures subsequent music YM/PSG writes with that frontier, and mode 2 restores direct writes. PCM start/stop operands are prepared before capture. The DAC consumer releases queued writes when their sample position is reached. Conductor events retain their logical music tick; physical writes take serial CPU time, so this does not claim simultaneous hardware writes.
 
-Opcode 33 accepts tone-derived control values E3/E7. The following PSG operation sets the reserved tone-3 period and mutes its audible tone output. Logical noise state retains the period separately from control/volume. SFX can use either resource, but music cannot resume until the pair is free and a fresh note arrives. Music mode state is at 1F67h; patch-refill restart pointer is at 1F68h..1F6Ah.
+Opcode 33 accepts tone-derived control values E3/E7. The following PSG operation sets the reserved tone-3 period and mutes its audible tone output. Logical noise state retains the period separately from control/volume. SFX can use either resource, but music cannot resume until the pair is free and a fresh note arrives. Music mode state is at 1F67h; patch refills restart from the cached patch ID.
 
 Legacy PSG base periods round before multiplication by Furnace's quantized reverse-pitch table. Partial-mode instrument pitch macros remain unsupported. PSG vibrato and detune are expanded at build time; loop boundaries must preserve or reset their state. A note-off at a loop entry is a valid macro reset. Cancelled FM slides at both boundaries need no redundant restart command. Active slides retain the conservative loop checks.
 
-Relocatable tone groups and song LFO helpers use 1980h..19FFh. In revision 12 the pure core ends at 16E9h (5865 bytes); helper code totals 377 bytes. PCM lookahead, FIFO and guarded stacks retain their previous sizes. The new channel cursors require relocating logical state and reducing the write queue to 64 records. See the current RAM allocation above.
+Relocatable tone groups and song LFO helpers use 1980h..19FFh. The current revision-12 pure core ends at 16FAh (5882 bytes). PCM lookahead, FIFO and guarded stacks retain their previous sizes. The new channel cursors require relocating logical state and using 32 compact command records. See the current RAM allocation above.
+
+Synchronized instrument changes enqueue a patch ID instead of expanding thirty
+YM writes during pattern decoding. Fresh FM notes likewise enqueue their complete
+frequency as one command. At the PCM frontier, delivery loads the patch, keys off
+the active voice, writes operator groups and applies the new note. Raw operator
+groups poll the DAC between four writes; TL writes retain music gain. A voice's
+previous instrument remains active until delivery, including when every channel
+was already playing. The queue applies backpressure when full. Opcode 40h..4Fh
+conductor patch commands remain readable for existing revision-12 banks, but the
+compiler keeps instruments in their channel patterns. Synchronized EE events run
+on the last non-PCM channel at the same logical tick and retain source order.
+
+The live distance to a newly marked frontier uses a saturating alternate-A
+counter. A decoder that reaches an empty queue late therefore cannot mistake a
+wrapped FIFO address for a future deadline. Patch-cache access blocks nested
+command delivery. Refill waits may service PCM from main, but cannot resume an
+already-running producer stack recursively.

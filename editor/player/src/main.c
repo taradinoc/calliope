@@ -3,7 +3,8 @@
  * exporting implementation details in Calliope's public game API. */
 #include <genesis.h>
 #include "calliope.h"
-#include "audio.h"
+/* SGDK may generate a same-named audio.h for the empty resource file. */
+extern const u8 clp_bank[];
 #include "ADAPTER_SOURCE"
 
 volatile u8 clpEditorMailbox[256];

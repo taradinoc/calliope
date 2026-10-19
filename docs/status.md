@@ -13,8 +13,16 @@ implemented. See authoring and API documentation for supported effects and limit
   not establish sample-accurate scheduling or hitch-free playback.
 - Pure Z80 PAL full-song DMA/SFX stress previously reached 21325 ticks against
   a 21420 minimum over 18000 video frames. The gate remains an acceptance failure.
-- Pure Z80 NTSC hitch measurements have exceeded the 150-stall gate (172 in a
-  recorded 6000-frame workload). Workload and driver changes require fresh evidence.
+- The compact patch/note delivery change passes the pure Z80 NTSC 6000-frame
+  hitch workload: 129 stalled frames (previous image: 175), 48 stalls with work
+  pending (previous: 97), maximum pending/stall run 3, and no faults or underruns.
+  Green Hill's first lead-note interval measures 112 ms versus 143 ms before;
+  changing voices' patch key-off gaps fall from 53–74 ms to about 3 ms.
+- Five already-playing voices changing to five distinct instruments pass the
+  burst checks in NTSC/PAL, including all instrument registers and runtime gain.
+  Writes remain serial: measured entrance spread reaches about 23 ms. The
+  6000-frame DMA/SFX stress and bundled pure-player controls pass in both regions.
+  These checks do not close strict jitter or full-song PAL throughput acceptance.
 - The October 18 hybrid optimization measured 12.07% / 11.94% of a 68000 frame
   for normal NTSC/PAL audio service, including per-frame status polling. The
   3000-frame DMA/SFX stress profiles measured 12.90% / 12.63%, with zero faults

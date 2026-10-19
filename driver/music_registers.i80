@@ -4,7 +4,7 @@ music_sync_enqueue:
         RST $08
 music_sync_room:
         LD A,(SYNCQCOUNT)
-        CP 64
+        CP 32
         JR C,music_sync_store
         CALL music_yield
         JR music_sync_room
@@ -12,19 +12,16 @@ music_sync_store:
         LD HL,(SYNCQTAIL)
         LD A,(SYNCFRONT)
         LD (HL),A
-        INC HL
+        INC L
         POP AF
         LD (HL),A
-        INC HL
+        INC L
         LD (HL),D
-        INC HL
+        INC L
         LD (HL),E
-        INC HL
-        LD A,H
-        CP $1B
-        JR C,music_sync_tail
-        LD HL,$1A00
+        INC L
 music_sync_tail:
+        RES 7,L
         LD (SYNCQTAIL),HL
         LD HL,SYNCQCOUNT
         INC (HL)
@@ -53,13 +50,20 @@ music_sync_dac:
         NOP
 music_sync_drain:
         DI
+        LD HL,(PATCHBUSY) ; high byte is CONTEXT
+        LD A,H
+        OR L
+        JP NZ,music_sync_low_pcm
+        LD A,(PROTECT)
+        OR A
+        JP NZ,music_sync_low_pcm
         ; Do not monopolize a refill that has only published a few bytes.
         ; Recheck between writes so the producer always retains headroom.
         EXX
         LD A,IYH
         SUB C
         EXX
-        CP 16
+        CP 32
         JP C,music_sync_low_pcm
         LD A,(SYNCQCOUNT)
         OR A
@@ -88,18 +92,15 @@ music_sync_future:
         LD IYL,A
         JR music_sync_done
 music_sync_due:
-        INC HL
+        INC L
         LD C,(HL)
-        INC HL
+        INC L
         LD D,(HL)
-        INC HL
+        INC L
         LD E,(HL)
-        INC HL
-        LD A,H
-        CP $1B
-        JR C,music_sync_next
-        LD HL,$1A00
+        INC L
 music_sync_next:
+        RES 7,L
         LD (SYNCQHEAD),HL
         LD A,(HL)
         SUB B
@@ -107,6 +108,8 @@ music_sync_next:
         LD HL,SYNCQCOUNT
         DEC (HL)
         EI
+        LD B,C
+        RES 7,C
         LD A,(SYNCOWNER)
         CP C
         JR Z,music_sync_owner_cached
@@ -118,6 +121,11 @@ music_sync_owner_cached:
         LD A,(SYNCBLOCK)
         OR A
         JR NZ,music_sync_written
+        BIT 7,B
+        JP NZ,patch_commit
+        INC D
+        JP Z,patch_commit
+        DEC D
         DI
         LD A,C
         CP 5
@@ -163,11 +171,11 @@ music_sync_mark:
         EXX
         LD A,C
         EXX
-        EI
         LD C,A
         LD A,B
         SUB C
-        LD (SYNCLEFT),A
+        EX AF,AF'
+        EI
         RET
 music_sync_psg_direct:
         OR A

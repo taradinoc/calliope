@@ -1536,7 +1536,8 @@ def compile_bank(
                     addresses = [
                         pack.add(pattern, alignment=16)
                         for pattern in split_channels(
-                            compiled, len(voices), terminal, 9 in mapping.values()
+                            compiled, len(voices), terminal, 9 in mapping.values(),
+                            max((i for i, slot in enumerate(mapping.values()) if slot != 9), default=0)
                         )
                     ]
                     orders.append(
@@ -1552,7 +1553,8 @@ def compile_bank(
                     addresses = [
                         pack.add(pattern, alignment=16)
                         for pattern in split_channels(
-                            compiled, len(voices), terminal, 9 in mapping.values()
+                            compiled, len(voices), terminal, 9 in mapping.values(),
+                            max((i for i, slot in enumerate(mapping.values()) if slot != 9), default=0)
                         )
                     ]
                     orders.append(

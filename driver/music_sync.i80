@@ -3,13 +3,14 @@
 ; consumed only in main. Cache the check across adjacent same-channel writes.
 SYNCOWNER EQU $1EF5
 SYNCBLOCK EQU $1EF6
+; 32 four-byte commands occupy 1A00h..1A7Fh. Bulk delivery code follows.
 SYNCQHEAD EQU $1EE8
 SYNCQTAIL EQU $1EEA
 SYNCQCOUNT EQU $1EEC
 SYNCCAPTURE EQU $1EED
 SYNCHEADLEFT EQU $1EEE
 SYNCFRONT EQU $1F73
-SYNCLEFT EQU $1F74
+PATCHBUSY EQU $1F74
 music_sync_ym:
         PUSH AF
         LD A,D
@@ -31,6 +32,7 @@ music_sync_psg_active:
         PUSH AF
         PUSH DE
         LD E,A
+        LD D,0 ; FF is reserved for compact FM patch entries
         LD A,(PSGCH)
         CALL music_sync_enqueue
         POP DE
@@ -45,25 +47,21 @@ music_sync_prepare:
         LD (ym+1),HL
         LD HL,music_sync_psg_active
         LD (music_sync_psg+1),HL
-        JP pcm_service
+        JP music_yield
 
 
 music_sync_arm:
+        ; A' counts samples to the current producer frontier, saturating at
+        ; zero even with an empty register queue. FIFO addresses wrap, so a
+        ; late first enqueue must not infer a future deadline from subtraction.
         DI
-        EXX
-        LD A,C
-        EXX
+        EX AF,AF'
         LD B,A
-        LD A,(SYNCFRONT)
-        SUB B
-        LD HL,SYNCLEFT
-        CP (HL)
-        JR C,music_sync_arm_future
-        JR Z,music_sync_arm_future
-        XOR A
-music_sync_arm_future:
+        EX AF,AF'
+        LD A,B
         LD (SYNCHEADLEFT),A
         INC A
         LD IYL,A
         EI
         RET
+

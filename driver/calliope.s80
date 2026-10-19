@@ -508,11 +508,11 @@ music_channels:
         RET Z
         JP channels_tick
 tick_wait:
-        LD A,(WAIT)
+        LD HL,WAIT
+        LD A,(HL)
         OR A
         JR Z,decode
-        DEC A
-        LD (WAIT),A
+        DEC (HL)
         RET NZ
 decode:
         CALL fetch
@@ -634,10 +634,19 @@ patch_install:
         CALL install_patch
         JP decode
 install_patch:
-        PUSH AF
-        CALL keyoff
-        POP AF
-        PUSH AF
+        LD E,A
+        LD A,(SYNCCAPTURE)
+        OR A
+        LD A,E
+        JR Z,install_patch_direct
+        LD D,255
+        LD A,C
+        JP music_sync_enqueue
+install_patch_direct:
+        LD B,A
+        LD HL,PATCHBUSY
+        INC (HL)
+        LD A,B
         CALL cache_one_patch
         LD HL,FMKEYS
         LD E,C
@@ -649,71 +658,70 @@ install_patch:
         RLCA
         RLCA
         LD (HL),A
-        POP AF
-        LD HL,FMLOADED
-        LD E,C
-        LD D,0
-        ADD HL,DE
-        LD B,A
-        LD A,(SYNCCAPTURE)
-        OR A
-        JR NZ,patch_pending
-        LD A,(SYNCQCOUNT)
-        OR A
-        JR NZ,patch_pending
-        LD A,B
-        CP (HL)
-        LD (HL),A
-        JR NZ,patch_full
-        ; The instrument registers are already installed. TLs may have
-        ; changed through authored volume, so restore those on every call.
-        LD HL,PATCH+4
-        JP level_write
-patch_pending:
-        ; Deferred instrument writes may run after an intervening SFX.
-        ; Do not claim a known physical instrument while writes are pending.
-        LD (HL),255
+patch_immediate:
+        CALL keyoff
 patch_full:
-        LD HL,PATCH
-        LD A,(CH)
-        LD C,A
+        PUSH BC
+        LD HL,$4000
+        LD DE,PATCH
+        LD A,C
         CP 3
         JR C,patch_channel
+        LD L,2
         SUB 3
 patch_channel:
         ADD A,$30
-        LD D,A
+        LD C,A
         LD B,7
-patch_group:
+patch_operator:
+        RST $08
+        LD A,C
+        AND $F0
+        CP $40
+        JR Z,patch_tl_group
+        CALL patch_quad
+        JR patch_group_done
+patch_tl_group:
         PUSH BC
         LD B,4
-patch_operator:
-        LD E,(HL)
-        INC HL
-        CALL patch_volume
-        CALL ym
-        LD A,D
+patch_tl_operator:
+        RST $08
+        LD A,(DE)
+        INC DE
+        CALL patch_adjust
+        DI
+        LD (HL),C
+        INC L
+        LD (HL),A
+        DEC L
+        EI
+        LD A,C
         ADD A,4
-        LD D,A
-        DJNZ patch_operator
+        LD C,A
+        DJNZ patch_tl_operator
+        LD A,C
         POP BC
-        CALL music_yield
-        DJNZ patch_group
-        LD A,(CH)
-        CP 3
-        JR C,patch_alg
-        SUB 3
-patch_alg:
-        ADD A,$B0
-        LD D,A
-        LD E,(HL)
-        INC HL
-        CALL ym
-        LD A,D
-        ADD A,4
-        LD D,A
-        LD E,(HL)
-        JP ym
+        LD C,A
+patch_group_done:
+        DJNZ patch_operator
+        SET 4,C
+        LD B,2
+patch_control:
+        RST $08
+        DI
+        LD (HL),C
+        INC L
+        LD A,(DE)
+        INC DE
+        LD (HL),A
+        DEC L
+        EI
+        SET 2,C
+        DJNZ patch_control
+        POP BC
+        XOR A
+        LD (PATCHBUSY),A
+        RET
 note_op:
         CALL fetch_slot
         LD A,C
@@ -742,7 +750,7 @@ note_op:
         CALL level_current
         CALL pan_from_part
 note_ready:
-        CALL note_write
+        CALL note_dispatch
         JP decode
 ; Frequencies are compiled offline; continuous writes never restart envelopes.
 fetch_frequency:
@@ -981,17 +989,10 @@ cache_patches:
         LD (HL),A
         LD A,255
         LD (PATCHID),A
-        LD HL,FMLOADED
-        LD B,5
-patch_forget:
-        LD (HL),A
-        INC HL
-        DJNZ patch_forget
         LD A,1
         LD ($1E9E),A
         RET
 PATCHID EQU $1F5C
-FMLOADED EQU $1EF0 ; instrument ID currently installed on each physical FM voice
 cache_one_patch:
         LD HL,PATCHID
         CP (HL)
@@ -999,11 +1000,11 @@ cache_one_patch:
         LD (HL),A
         PUSH BC
         PUSH DE
-        PUSH AF
+cache_patch_restart:
         RST $08
         LD HL,PATCHES
         CALL relative
-        POP AF
+        LD A,(PATCHID)
         LD L,A
         LD H,0
         RST $08
@@ -1019,15 +1020,6 @@ cache_one_patch:
         ADC A,0
         LD (RPTR+2),A
         RST $08
-        LD HL,(RPTR)
-        LD (PATCHPTR),HL
-        LD A,(RPTR+2)
-        LD (PATCHPTR+2),A
-cache_patch_restart:
-        LD HL,(PATCHPTR)
-        LD (RPTR),HL
-        LD A,(PATCHPTR+2)
-        LD (RPTR+2),A
         CALL read
         LD HL,(RPTR)
         DEC HL
@@ -1038,7 +1030,7 @@ cache_patch_group:
         RST $08
         LD A,(PROTECT)
         OR A
-        JR NZ,cache_patch_protected
+        JP NZ,cache_patch_protected
         LDI
         LDI
         LDI
@@ -1046,18 +1038,18 @@ cache_patch_group:
         LD A,C
         OR A
         JR NZ,cache_patch_group
-        CALL music_yield
         POP DE
         POP BC
         RET
-cache_patch_protected:
-        CALL music_yield
-        JR cache_patch_restart
-PATCHPTR EQU $1F68
 music_yield:
         ; Only save the ROM reader and caller registers when a refill can
         ; actually do work. Otherwise this yield is just a DAC poll.
         RST $08
+        ; A queued patch may poll here on the producer's own stack. It must
+        ; not resume that same stack recursively. Main-side DMA waits can fill.
+        LD A,(FILLRUN)
+        OR A
+        RET NZ
         LD A,(FILLBUSY)
         OR A
         JR NZ,music_yield_fill
@@ -1104,10 +1096,19 @@ music_yield_fill:
         INCLUDE "music_reset.i80"
 ; Note-off alone leaves an audible FM release tail after stop/pause/EOF.
 ; Keep the authored TL shadows so dirty voices can restore on resume.
-silent_levels:
-        DB 127,127,127,127
-pan_output:
-        CALL pan_write
+note_dispatch:
+        LD A,(SYNCCAPTURE)
+        OR A
+        JP Z,note_write
+        LD DE,(NOTETEMP)
+        LD A,C
+        OR $80
+        JP music_sync_enqueue
+music_sync_prepare_direct:
+        CALL pcm_service
+        JP music_sync_mark
+music_sync_begin:
+        CALL music_sync_mark
         JP decode
 code_end:
         IF $ > $1700
@@ -1115,13 +1116,14 @@ code_end:
         ENDIF
         BLOCK $1730-$
 read_extension_start:
-wait_op:
-        CALL fetch
-        LD (WAIT),A
-        RET
+read_retry:
+        POP DE
+        POP BC
+        POP HL
+        JP read
 read_extension_end:
         IF $ > $1738
-        ERROR "Wait helper overlaps refill stack guard"
+        ERROR "ROM retry helper overlaps refill stack guard"
         ENDIF
         BLOCK $1738-$
         DB $A5,$A5,$A5,$A5,$A5,$A5,$A5,$A5 ; refill stack guard
@@ -1145,11 +1147,24 @@ pan_extension_end:
 control_extension_start:
         INCLUDE "clock_load.i80"
         INCLUDE "tempo_rate.i80"
-read_retry:
+pan_output:
+        CALL pan_write
+        JP decode
+; Apply music gain to a TL value while the bulk writer uses DE as its cursor.
+patch_adjust:
+        PUSH HL
+        PUSH DE
+        EX DE,HL
+        LD E,A
+        LD D,C
+        CALL patch_volume
+        LD A,E
         POP DE
-        POP BC
         POP HL
-        JP read
+        RET
+cache_patch_protected:
+        CALL music_yield
+        JP cache_patch_restart
 control_extension_end:
         IF $ > $18D8
         ERROR "Control helpers overlap FM level state"
@@ -1169,6 +1184,9 @@ pan_check_end:
         IF $ > $1920
         ERROR "Panning guard overlaps channel schedule"
         ENDIF
+pcm_descriptor_protected:
+        CALL music_yield
+        JP pcm_descriptor_restart
         BLOCK $1930-$
 pan_write_start:
 pan_write:
@@ -1190,6 +1208,12 @@ tone_group_extension_start:
 tone_group_extension_end:
         IF $ > $1A00
         ERROR "Tone-group helpers overlap synchronized chip queue"
+        ENDIF
+        BLOCK $1A80-$
+        INCLUDE "patch_output.i80"
+        INCLUDE "patch_queue.i80"
+        IF $ > $1B00
+        ERROR "Patch output overlaps logical voices"
         ENDIF
         BLOCK $1EB0-$
 silence_extension_start:
@@ -1215,10 +1239,17 @@ level_from_part:
         CALL level_restore
         POP IX
         RET
+wait_op:
+        CALL fetch
+        LD (WAIT),A
+        RET
 level_extension_end:
         IF $ > $1EDB
         ERROR "Level helper overlaps current SFX pointer"
         ENDIF
+        BLOCK $1EF0-$
+silent_levels:
+        DB 127,127,127,127
         BLOCK $1EF7-$
 pan_restore_start:
 pan_from_part:

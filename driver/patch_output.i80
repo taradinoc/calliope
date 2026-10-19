@@ -1,0 +1,43 @@
+; Four raw operator writes fit between DAC polls. Address-to-data spacing is
+; at least 24 Z80 clocks (YM busy: 32 YM clocks, about 15 Z80 clocks).
+; Keep the group atomic to DAC address-port writes; TL gain is handled outside.
+patch_quad:
+        DI
+        LD (HL),C
+        INC L
+        LD A,(DE)
+        INC DE
+        LD (HL),A
+        DEC L
+        LD A,C
+        ADD A,4
+        LD C,A
+        LD (HL),C
+        INC L
+        LD A,(DE)
+        INC DE
+        LD (HL),A
+        DEC L
+        LD A,C
+        ADD A,4
+        LD C,A
+        LD (HL),C
+        INC L
+        LD A,(DE)
+        INC DE
+        LD (HL),A
+        DEC L
+        LD A,C
+        ADD A,4
+        LD C,A
+        LD (HL),C
+        INC L
+        LD A,(DE)
+        INC DE
+        LD (HL),A
+        DEC L
+        LD A,C
+        ADD A,4
+        LD C,A
+        EI
+        RET

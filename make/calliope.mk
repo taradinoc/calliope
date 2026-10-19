@@ -93,6 +93,7 @@ release debug:
 	"$(CALLIOPE_PYTHON)" "$(CALLIOPE_HOME)/tools/consumer.py" --rom "$(CLP_OUT)/rom.bin" --symbols "$(CLP_OUT)/symbol.txt" --config "$(CALLIOPE_BUILD_DIR)/calliope_config.json" --symbol "$(CALLIOPE_BANK_SYMBOL)"
 ifneq ($(CLP_OUT),out)
 	$(CP) "$(CLP_OUT)/rom.bin" out/rom.bin
+	$(CP) "$(CLP_OUT)/symbol.txt" out/symbol.txt
 endif
 endif
 

@@ -4,11 +4,10 @@ from .furnace import FormatError
 from .music_sync import LENGTHS
 from .timing import CommandStream
 
-PATCH_PART = 0x40
 WIDTHS = {**LENGTHS, 0: 1, 0x38: 1, 0x39: 1}
 
 
-def split(commands, count, terminal, synchronized=False):
+def split(commands, count, terminal, synchronized=False, event_part=None):
     packets = [[] for _ in range(count + 1)]
     part = None
     tick = 0
@@ -30,13 +29,14 @@ def split(commands, count, terminal, synchronized=False):
             continue
         if op == 0x38:
             continue
-        if op in (0x15, 0x20, 0x34, 0x39):
+        if op == 0x20 and synchronized:
+            # External notifications keep their logical tick and source order,
+            # but do not delay PCM preparation and the first chip channels.
+            destination = 1 + (count - 1 if event_part is None else event_part)
+        elif op in (0x15, 0x20, 0x34, 0x39):
             destination = 0
         elif part is None:
             raise FormatError("channel operation without a part")
-        elif op == 0x10 and synchronized:
-            destination = 0
-            operation = bytes((PATCH_PART + part, operation[2]))
         else:
             destination = part + 1
             if op in (0x10, 0x11, 0x13, 0x16, 0x36, 0x37):

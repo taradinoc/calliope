@@ -4,9 +4,9 @@
   "region": "ntsc",
   "pcm_timer": 1016,
   "bank_address": 1048576,
-  "mailbox_address": 16711787,
-  "bank_length_address": 43030,
-  "sha256": "c277340d69779337d9b337ecd415b813801a9ddbd4c7d4935b483903cb82d21d",
+  "mailbox_address": 16711791,
+  "bank_length_address": 35098,
+  "sha256": "efed615b4296ca3d9585cbe6e8fa75acf46ad1dc3debd19a20f762f4210227c4",
   "bank_revision": 12,
   "initialization_status_offset": 26,
   "cpu_load": {

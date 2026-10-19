@@ -18,6 +18,10 @@ dac_tick:
 dac_output:
         LD (HL),$2A
         LD (DE),A
+        EX AF,AF'
+        SUB 1
+        ADC A,0 ; saturate the frontier countdown at zero
+        EX AF,AF'
         DEC IYL
         CALL Z,music_sync_dac
 dac_no_tick:

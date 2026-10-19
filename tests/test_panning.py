@@ -118,7 +118,7 @@ class Panning(unittest.TestCase):
     def test_pcm_alignment_keeps_pan_before_note(self):
         aligned=align_tick(bytes((0x14,0,0x10,0,0,0x16,0,0x85,0x11,0,0x34,0x12,0x14,1,0x31,1,2,3)))
         conductor,fm,pcm=split(aligned,2,0xff,True)
-        self.assertEqual(tokens(fm)[:2],(bytes((0x16,0x85)),bytes((0x11,0x34,0x12))))
+        self.assertEqual(tokens(fm)[:3],(bytes((0x10,0)),bytes((0x16,0x85)),bytes((0x11,0x34,0x12))))
         self.assertEqual(tokens(pcm)[0],bytes((0x31,1,2,3)))
 
     def test_psg_panning_is_a_noop_and_pcm_reports_its_limit(self):

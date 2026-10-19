@@ -7,12 +7,11 @@ music_sync_reset:
         LD (SYNCQTAIL),HL
         LD (SYNCQCOUNT),A
         LD (SYNCCAPTURE),A
+        LD (PATCHBUSY),A
         LD IYL,A
+        EX AF,AF'
         CALL music_sync_restore
         EI
         POP AF
         RET
 
-music_sync_begin:
-        CALL music_sync_mark
-        JP decode

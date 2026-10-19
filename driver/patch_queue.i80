@@ -1,0 +1,37 @@
+; Compact patch and note commands use the same output frontier as PCM.
+patch_commit:
+        LD HL,(ym+1)
+        PUSH HL
+        LD HL,ym_direct
+        LD (ym+1),HL
+        BIT 7,B
+        JR NZ,note_commit
+        LD HL,(RPTR)
+        PUSH HL
+        LD A,(RPTR+2)
+        PUSH AF
+        LD A,E
+        CALL install_patch_direct
+        POP AF
+        POP HL
+        LD (RPTR),HL
+        LD (RPTR+2),A
+        PUSH AF
+        PUSH HL
+        CALL read
+        POP HL
+        POP AF
+        LD (RPTR),HL
+        LD (RPTR+2),A
+        JR patch_commit_done
+note_commit:
+        LD HL,(NOTETEMP)
+        PUSH HL
+        LD (NOTETEMP),DE
+        CALL note_write
+        POP HL
+        LD (NOTETEMP),HL
+patch_commit_done:
+        POP HL
+        LD (ym+1),HL
+        JP music_sync_written

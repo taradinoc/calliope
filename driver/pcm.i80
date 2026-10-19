@@ -120,18 +120,27 @@ pcm_start:
         CALL pcm_prime
         POP AF
         LD (PCMSFX),A
+pcm_descriptor_restart:
+        ; Descriptors are bounded ROM blocks. Map once and copy four bytes
+        ; between DAC/DMA checks; a protected transfer restarts after yielding.
         LD HL,TEMP+4
         CALL relative
-        LD HL,PCMDESC
-        LD B,16
-pcm_descriptor:
         CALL read
-        LD (HL),A
-        INC HL
-        LD A,B
-        AND 3
-        CALL Z,music_yield
-        DJNZ pcm_descriptor
+        LD HL,(RPTR)
+        DEC HL
+        SET 7,H
+        LD DE,PCMDESC
+        LD BC,16
+pcm_descriptor:
+        RST $08
+        LD A,(PROTECT)
+        OR A
+        JP NZ,pcm_descriptor_protected
+        LDI
+        LDI
+        LDI
+        LDI
+        JP PE,pcm_descriptor
         LD A,(TEMP+7)
         LD (IX+13),A
         LD HL,(TEMP+2)
@@ -508,6 +517,10 @@ dac_irq_empty:
 dac_irq_out:
         LD (HL),$2A
         LD (DE),A
+        EX AF,AF'
+        SUB 1
+        ADC A,0
+        EX AF,AF'
         DEC IYL
         JR NZ,dac_irq_done
         INC IYL ; defer register delivery until outside the asserted video IRQ

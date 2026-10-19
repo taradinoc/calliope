@@ -17,7 +17,7 @@ music_sync_flush:
         LD A,(SYNCQCOUNT)
         OR A
         RET Z
-        CALL pcm_service
+        CALL music_yield
         JR music_sync_flush
 
 music_sync_restore:
@@ -27,6 +27,3 @@ music_sync_restore:
         LD (music_sync_psg+1),HL
         RET
 
-music_sync_prepare_direct:
-        CALL pcm_service
-        JP music_sync_mark

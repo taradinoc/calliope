@@ -19,10 +19,26 @@ class ChannelStreams(unittest.TestCase):
         raw=bytes((0x38,0,0x15,8,0,0,0x14,0,0x10,0,2,0x14,1,0x31,20,0,0,
                    0x38,1,0x14,0,0x11,0,0x34,0x12,0,6,0x14,0,0x36,0,0x35,0x12,0,6))
         conductor,fm,pcm=split(raw,2,0xfd,True)
-        self.assertEqual(timed_trace(tokens(conductor)),[(0,bytes((0x15,8,0,0))),(0,bytes((0x40,2))),(12,bytes((0xfd,)))])
-        self.assertEqual(timed_trace(tokens(fm)),[(0,bytes((0x11,0x34,0x12))),(6,bytes((0x36,0x35,0x12))),(12,bytes((0xfd,)))])
+        self.assertEqual(timed_trace(tokens(conductor)),[(0,bytes((0x15,8,0,0))),(12,bytes((0xfd,)))])
+        self.assertEqual(timed_trace(tokens(fm)),[(0,bytes((0x10,2))),(0,bytes((0x11,0x34,0x12))),(6,bytes((0x36,0x35,0x12))),(12,bytes((0xfd,)))])
         self.assertEqual(timed_trace(tokens(pcm)),[(0,bytes((0x31,20,0,0))),(12,bytes((0xfd,)))])
         self.assertTrue(all(t[0] not in (0x14,0x38) for s in (conductor,fm,pcm) for t in tokens(s)))
+
+    def test_events_follow_preparation_without_changing_tick_or_source_order(self):
+        events=bytes((0x20,0xcc,0,1,0,0x20,0xa2,0,1,0))
+        raw=bytes((0x14,0,0x10,0,2))+events+bytes((0,3,0x14,1,0x13,1,0,3))
+        conductor,fm,last=split(raw,2,0xfd,True)
+        self.assertEqual(timed_trace(tokens(conductor)),[(6,b'\xfd')])
+        self.assertEqual(timed_trace(tokens(last))[:2],[(0,events[:5]),(0,events[5:])])
+        self.assertEqual(timed_trace(tokens(last))[-2:],[(3,b'\x13'),(6,b'\xfd')])
+
+    def test_events_can_follow_last_chip_part_when_pcm_is_last_in_manifest(self):
+        event=bytes((0x20,0xcc,0,1,0))
+        raw=bytes((0x14,1,0x31,20,0,0))+event+bytes((0,3))
+        conductor,fm,pcm=split(raw,2,0xfd,True,event_part=0)
+        self.assertEqual(timed_trace(tokens(fm))[:1],[(0,event)])
+        self.assertEqual(timed_trace(tokens(pcm))[:1],[(0,bytes((0x31,20,0,0)))])
+        self.assertEqual(timed_trace(tokens(conductor)),[(3,b'\xfd')])
 
     def test_unsynchronized_patch_stays_in_channel_and_empty_channel_advances(self):
         conductor,fm,empty=split(bytes((0x14,0,0x10,0,2,0x11,0,0x34,0x12,0,9)),2,0xff)
