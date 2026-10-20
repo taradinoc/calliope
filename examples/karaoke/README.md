@@ -107,7 +107,15 @@ the placeholder ends one advance before the next contact.
 
 The active line has white unsung segments and magenta sung segments. Previous lines
 are dark magenta. Upcoming lines are gray. One blank row separates lyric lines.
-The last line stays centered when the song ends.
+The last line stays centered during the final wait.
+
+One marker advance after the final word, the lyric screen is replaced by a
+full-screen end card from `media/sound-by-calliope.bmp`. If the song ends before
+that wait completes, playback completion starts the card early. One advance
+after playback ends, the screen clears and `PRESS A TO RESTART` appears in the
+center. **A** replays from the title splash. `res/karaoke.res` compiles the card
+as an SGDK `IMAGE`. The card replaces the lyric palettes and the first user tile
+block, so `screenReset()` restores both before a replay.
 
 To change songs, set the first song's `source` in `bank.json` and put the lyrics
 in a `.txt` file beside that `.fur` file with the same stem. The build currently
@@ -119,9 +127,9 @@ hyphens, underscores, or line boundaries. Underscores stay in the source text
 but occupy no display column. For example, `when_ev_er` appears as `whenever`. Its three segments require three cues, with separate
 highlights and ball contacts centered on `when`, `ev`, and `er`.
 Visible text must use printable ASCII and fit 38 columns. `inc/timing.h` contains
-the module's tick rate, effective advance (including a song-level override),
-and break intervals in original music ticks. Treat both headers as generated
-assets; edit the source files instead.
+the module's tick rate, effective advance (including a song-level override), the
+expected contact count, and break intervals in original music ticks. Treat both
+headers as generated assets; edit the source files instead.
 Rebuild after changing either source asset or the manifest.
 
 This example expects one non-looping song and one cue per segment. The build

@@ -10,6 +10,8 @@ typedef struct {
     u16 lineCues, wordCues, fault, eventsLost, completed;
     u16 scroll, ballX, ballY, contacts, queued, textWrites;
     u32 clock, lastCueTime;
+    /* 0 = lyrics, 1 = end card, 2 = replay prompt. */
+    u16 stage;
 } KaraokeDiagnostics;
 extern volatile KaraokeDiagnostics karaokeDebug;
 

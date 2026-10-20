@@ -7,6 +7,8 @@ from pathlib import Path
 import re
 import sys
 
+from PIL import Image
+
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parents[1] / "tools"))
 from libretro_host import Host
@@ -34,7 +36,9 @@ args = parser.parse_args()
 
 timing_header = (HERE / "inc/timing.h").read_text()
 music_rate5 = int(re.search(r"KARAOKE_RATE5 (\d+)", timing_header)[1])
+lead_ticks = int(re.search(r"KARAOKE_LEAD_TICKS (\d+)", timing_header)[1])
 tick_scale = 250 if args.pal else 300
+advance_units = lead_ticks * tick_scale
 host = Host(
     args.core,
     HERE / "out/rom.bin",
@@ -64,9 +68,10 @@ field_names = (
     "textWrites",
     "clock",
     "lastCueTime",
+    "stage",
 )
 field_offsets = {name: index * 2 for index, name in enumerate(field_names[:14])}
-field_offsets.update(clock=28, lastCueTime=32)
+field_offsets.update(clock=28, lastCueTime=32, stage=36)
 
 
 def value(name, length=2):
@@ -101,18 +106,63 @@ for line_number, line in enumerate(lines):
         targets.append((line_number, match.end(), x + (start + end) * 4))
         visible_spans.append((x + start * 8, x + end * 8))
 
+
+def await_stage(target, limit=600):
+    """Run frames until the presentation reaches the requested end stage."""
+    frames = 0
+    while word("stage") != target:
+        host.run(1)
+        frames += 1
+        assert word("fault") == word("eventsLost") == 0, (target, frames)
+        assert frames < limit, (target, word("stage"))
+    return frames
+
+
+def check_end_image(screen):
+    """The end card must match the source BMP's black and lit pixels."""
+    bmp = Image.open(HERE.parents[1] / "media/sound-by-calliope.bmp")
+    source = bmp.load()
+    target = screen.load()
+    different = 0
+    # Each 16-color group starts with black, so only the phase inside the
+    # group matters. The image is drawn unscrolled at the top left.
+    for y in range(bmp.height):
+        for x in range(bmp.width):
+            if ((source[x, y] % 16) == 0) != (target[x, y] == (0, 0, 0)):
+                different += 1
+    assert different == 0, f"{different} end-card pixels differ from the BMP"
+
+
+def check_restart_prompt(screen, center_y):
+    """The end sequence clears both planes before drawing one centered row."""
+    assert set(screen.crop((0, 0, 320, center_y)).get_flattened_data()) == {
+        (0, 0, 0)
+    }, "End card was not cleared"
+    row = set(screen.crop((0, center_y, 320, center_y + 8)).get_flattened_data())
+    assert (238, 238, 238) in row, "Restart prompt missing"
+    assert set(
+        screen.crop((0, center_y + 8, 320, screen.height)).get_flattened_data()
+    ) == {(0, 0, 0)}, "Restart prompt is not centered"
+
+
 if args.end_only:
     try:
-        for frame in range(0, 60000, 300):
-            host.run(300)
+        # Fast-forward to the last words. The final wait is shorter than one
+        # advance, so stop at the final contact before the end card appears.
+        while word("contacts") < len(targets) - 2:
+            host.run(60)
+            assert word("fault") == word("eventsLost") == 0
+        for frame in range(600):
+            host.run(1)
             assert word("fault") == word("eventsLost") == 0, frame
-            if word("completed"):
+            if word("contacts") == len(targets):
                 break
-        assert word("completed"), "Song did not complete"
+        assert word("contacts") == len(targets), "Song did not reach the final word"
+        host.run(2)  # deliver the queued highlight
         assert word("line") == len(lines) - 1
         assert word("scroll") == (len(lines) - 1) * 16
         screen = host.screenshot()
-        screen.save(HERE / "out/smoke/end.png")
+        screen.save(HERE / "out/smoke/end-lyric.png")
         center_y = (screen.height // 16) * 8
         assert any(
             pixel != (0, 0, 0)
@@ -123,15 +173,34 @@ if args.end_only:
         assert set(
             screen.crop((0, center_y + 8, 320, screen.height)).get_flattened_data()
         ) == {(0, 0, 0)}, "Old lyrics repeat below the final line"
+        await_stage(1)
+        host.run(1)
+        image = host.screenshot()
+        image.save(HERE / "out/smoke/end-image.png")
+        check_end_image(image)
+        frames = 1 + await_stage(2, limit=300)
+        # The image upload can delay one main-loop iteration by a video frame.
+        assert abs(frames - -(-advance_units // music_rate5)) <= 2, (
+            frames,
+            advance_units,
+        )
+        host.run(1)
+        end = host.screenshot()
+        end.save(HERE / "out/smoke/end.png")
+        check_restart_prompt(end, center_y)
         host.run(1, (1,))
         host.run(3)
         assert word("contacts") == word("scroll") == word("queued") == 0
+        assert word("stage") == 0
         replay = host.screenshot()
         replay.save(HERE / "out/smoke/replay.png")
         assert (238, 238, 238) in set(
             replay.get_flattened_data()
         ), "Title splash missing on replay"
-        print(f"Final lyric {len(lines)-1}: trailing rows blank; replay passed.")
+        print(
+            f"Final lyric {len(lines)-1}: trailing rows blank; end card and "
+            f"{frames}-frame prompt; replay passed."
+        )
     finally:
         host.close()
     sys.exit(0)
@@ -157,12 +226,14 @@ try:
         host.run(1)
         assert word("fault") == 0, frame
         assert word("eventsLost") == 0, frame
+        stage = word("stage")
         scroll = word("scroll")
         assert previous_scroll <= scroll <= (len(lines) - 1) * 16
         interlude = in_interlude()
         if (
             pending_highlight is not None
             and not interlude
+            and not stage
             and scroll == word("line") * 16
         ):
             left, right = visible_spans[pending_highlight]
@@ -177,7 +248,7 @@ try:
             }, pending_highlight
             pending_highlight = None
         # A window overlay or early line scroll moves the expected pixels.
-        if interlude or scroll != word("line") * 16:
+        if interlude or stage or scroll != word("line") * 16:
             pending_highlight = None
         new_contacts = word("contacts")
         if new_contacts != contacts:
@@ -204,6 +275,7 @@ try:
         writes = word("textWrites")
         if (
             not interlude
+            and not stage
             and scroll == previous_scroll
             and writes == previous_writes
             and stable_last
@@ -214,7 +286,10 @@ try:
             ), frame
             idle_frames += 1
         stable_last = (
-            not interlude and scroll == previous_scroll and writes == previous_writes
+            not interlude
+            and not stage
+            and scroll == previous_scroll
+            and writes == previous_writes
         )
         previous_scroll, previous_writes, previous_screen = scroll, writes, screen
         if capture_active:
@@ -249,7 +324,23 @@ try:
     assert prescrolled_lines == sum(1 << line for line in range(1, len(lines)))
     assert scroll_frames > 150 and idle_frames > 500
     assert word("textWrites") < 30000, word("textWrites")
-    host.screenshot().save(HERE / "out/smoke/end.png")
+    # Playback ends with the end card. It lasts one advance, then the prompt
+    # replaces it; a short tail cuts that first wait to the song end.
+    assert word("stage") == 1, word("stage")
+    host.run(1)
+    image = host.screenshot()
+    image.save(HERE / "out/smoke/end-image.png")
+    check_end_image(image)
+    frames = 1 + await_stage(2, limit=300)
+    # The image upload can delay one main-loop iteration by a video frame.
+    assert abs(frames - -(-advance_units // music_rate5)) <= 2, (
+        frames,
+        advance_units,
+    )
+    host.run(1)
+    end = host.screenshot()
+    end.save(HERE / "out/smoke/end.png")
+    check_restart_prompt(end, center_y)
     bounce_frames[0].save(
         HERE / "out/smoke/bounce.gif",
         save_all=True,
@@ -262,6 +353,7 @@ try:
     host.run(3)
     assert word("started") == 0 and word("line") == 0
     assert word("wordEnd") == 0
+    assert word("stage") == 0
     host.run(900)
     host.run(1, (0,))  # Genesis B
     stopped = (word("contacts"), word("scroll"), value("clock", 4))

@@ -26,18 +26,26 @@ typedef enum {
     ERROR_NONE, ERROR_AUDIO, ERROR_LYRICS, ERROR_QUEUE, ERROR_EVENT_LOSS
 } KaraokeError;
 
+/* The end card appears one advance after the last contact, then the replay
+   prompt one advance after the song ends. */
+typedef enum {
+    STAGE_LYRICS, STAGE_IMAGE, STAGE_PROMPT
+} Stage;
+
 static Cue cues[CUE_CAPACITY];
 static u16 readCue, writeCue, generation, contacts;
 static u16 currentLine, wordEnd, visualLine;
 static u16 plannedLine, plannedEnd;
 static bool started, plannedStarted, stopped, completed, ballVisible;
 static KaraokeError error;
+static Stage stage;
+static u32 songEndTime;
 
 /* One music tick uses 5 * videoHz units. Each frame adds 5 * musicHz.
    This preserves fractional music tick rates without floating-point math.
    Every contactTime and clockTime below uses these same scaled units. */
 static u16 unitsPerTick;
-static u32 clockTime, flightStartTime;
+static u32 clockTime, flightStartTime, lastContactTime;
 static s16 flightStartX;
 
 /* smoke.py reads this snapshot. It does not control playback. */
@@ -147,6 +155,7 @@ static bool applyDueCues(void)
         screenHighlightWord(cue->line, cue->start, cue->end);
         wordEnd = cue->end;
         flightStartTime = cue->contactTime;
+        lastContactTime = cue->contactTime;
         flightStartX = cue->x;
         ++contacts;
         karaokeDebug.lastCueTime = cue->contactTime;
@@ -230,14 +239,41 @@ static void updateDisplay(void)
     updateBall(next, landed);
 }
 
+/* Hold the final lyric for one advance, then the end card, then the replay
+   prompt one advance after playback finishes. */
+static void advancePresentation(void)
+{
+    u32 advance = (u32)KARAOKE_LEAD_TICKS * unitsPerTick;
+    if (completed && !songEndTime) songEndTime = clockTime;
+    if (stage == STAGE_LYRICS) {
+        /* A gap can end the notification stream long before the song does, so
+           wait for the known final contact before starting the advance. */
+        u32 show = 0xffffffffUL;
+        if (KARAOKE_CONTACT_COUNT && contacts == KARAOKE_CONTACT_COUNT)
+            show = lastContactTime + advance;
+        /* A short tail cuts the wait to the moment playback finishes. */
+        if (songEndTime && songEndTime < show) show = songEndTime;
+        if (clockTime >= show) {
+            stage = STAGE_IMAGE;
+            screenEndImage();
+        }
+    } else if (stage == STAGE_IMAGE && songEndTime &&
+               clockTime >= songEndTime + advance) {
+        stage = STAGE_PROMPT;
+        screenRestartPrompt();
+    }
+}
+
 static void restart(void)
 {
     readCue = writeCue = currentLine = wordEnd = visualLine = 0;
     plannedLine = plannedEnd = 0;
     started = plannedStarted = stopped = completed = ballVisible = FALSE;
     contacts = 0;
+    stage = STAGE_LYRICS;
+    songEndTime = 0;
     /* Start the intro estimate now; event ticks correct it once cues arrive. */
-    clockTime = flightStartTime = 0;
+    clockTime = flightStartTime = lastContactTime = 0;
     flightStartX = 160;
     error = ERROR_NONE;
     memset((void *)&karaokeDebug, 0, sizeof(karaokeDebug));
@@ -266,6 +302,7 @@ static void publishDiagnostics(void)
     karaokeDebug.completed = completed;
     karaokeDebug.queued = writeCue - readCue;
     karaokeDebug.clock = clockTime;
+    karaokeDebug.stage = stage;
     /* Publish contacts last, after the corresponding display state. */
     karaokeDebug.contacts = contacts;
 }
@@ -284,7 +321,8 @@ int main(bool hardReset)
         u16 buttons = JOY_readJoypad(JOY_1);
         /* Hybrid Calliope needs one update per video frame, even without cues. */
         clp_update();
-        if (!stopped && !completed) clockTime += KARAOKE_RATE5;
+        /* The clock also measures the wait after playback finishes. */
+        if (!stopped) clockTime += KARAOKE_RATE5;
         pollEvents();
         if ((buttons & BUTTON_A) && !(previous & BUTTON_A)) restart();
         if ((buttons & BUTTON_B) && !(previous & BUTTON_B)) {
@@ -292,8 +330,9 @@ int main(bool hardReset)
             stopped = TRUE;
         }
         previous = buttons;
-        if (!stopped) updateDisplay();
+        if (!stopped && stage == STAGE_LYRICS) updateDisplay();
         inspectStatus();
+        if (!stopped) advancePresentation();
         publishDiagnostics();
         SYS_doVBlankProcess();
     }

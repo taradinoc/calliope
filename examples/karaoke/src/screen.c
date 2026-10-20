@@ -3,6 +3,7 @@
 #include "screen.h"
 #include "diagnostics.h"
 #include "lyrics.h"
+#include "karaoke.h"
 
 #define SCREEN_COLUMNS 40
 #define PLANE_ROWS 64
@@ -57,15 +58,12 @@ static void paintLine(u16 line, u16 palette)
     paint(line, 0, strlen(lyrics[line]), palette);
 }
 
-void screenInit(void)
+/* The end card replaces all four palettes with its 64 colors. Replay must
+   restore these before drawing the splash or the lyrics. */
+static void loadPalettes(void)
 {
     u16 palette[16] = {0};
     u16 i;
-    VDP_setScreenWidth320();
-    VDP_setPlaneSize(64, PLANE_ROWS, TRUE);
-    centerRow = VDP_getScreenHeight() / 16;
-    VDP_clearPlane(WINDOW, TRUE);
-    VDP_setWindowOff();
     for (i = 1; i < 16; ++i) palette[i] = 0xeee;
     PAL_setPalette(ACTIVE_PAL, palette, CPU);
     for (i = 1; i < 16; ++i) palette[i] = 0x606;
@@ -75,6 +73,16 @@ void screenInit(void)
     for (i = 1; i < 16; ++i) palette[i] = 0xe0e;
     palette[2] = 0xeee; /* White highlight on the ball. Font uses index 15. */
     PAL_setPalette(WORD_PAL, palette, CPU);
+}
+
+void screenInit(void)
+{
+    VDP_setScreenWidth320();
+    VDP_setPlaneSize(64, PLANE_ROWS, TRUE);
+    centerRow = VDP_getScreenHeight() / 16;
+    VDP_clearPlane(WINDOW, TRUE);
+    VDP_setWindowOff();
+    loadPalettes();
     VDP_loadTileData(ballTile, BALL_TILE, 1, CPU);
 }
 
@@ -91,6 +99,9 @@ void screenReset(void)
     u16 i;
     overlay = FALSE;
     karaokeDebug.textWrites = 0;
+    /* The end card reuses this palette block and tile index. */
+    loadPalettes();
+    VDP_loadTileData(ballTile, BALL_TILE, 1, CPU);
     screenError("                                      ");
     VDP_clearPlane(BG_A, TRUE);
     for (i = 0; i < PLANE_ROWS / 2; ++i) rowLines[i] = 0;
@@ -215,4 +226,32 @@ void screenLyrics(void)
     overlay = FALSE;
     /* Count a window switch as a visual change for smoke.py's pixel checks. */
     ++karaokeDebug.textWrites;
+}
+
+void screenEndImage(void)
+{
+    /* The ball and window planes would cover the image. The image palette and
+       first user tile block is replaced, so screenReset() restores them. */
+    VDP_setWindowOff();
+    overlay = FALSE;
+    screenBall(0, 0, 0, 0, FALSE, FALSE);
+    VDP_setVerticalScrollVSync(BG_A, 0);
+    VDP_drawImage(BG_A, &sound_by_calliope, 0, 0);
+    ++karaokeDebug.textWrites;
+}
+
+void screenRestartPrompt(void)
+{
+    static const char prompt[] = "PRESS A TO RESTART";
+    VDP_setWindowOff();
+    overlay = FALSE;
+    VDP_setVerticalScrollVSync(BG_A, 0);
+    VDP_clearPlane(BG_A, TRUE);
+    VDP_clearPlane(BG_B, TRUE);
+    /* The image replaced the lyric palettes with its own. */
+    loadPalettes();
+    VDP_drawTextEx(BG_A, prompt, TILE_ATTR(ACTIVE_PAL, TRUE, FALSE, FALSE),
+                  (SCREEN_COLUMNS - sizeof(prompt) + 1) / 2, centerRow,
+                  DMA_QUEUE_COPY);
+    karaokeDebug.textWrites += sizeof(prompt) - 1;
 }

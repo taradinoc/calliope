@@ -137,8 +137,10 @@ def generate_timing(source, manifest, output, lyrics_source=None):
             ticks, _ = timing.row(order, row, channels)
             elapsed += ticks
             row_index += 1
+    # The end card waits for the final contact, which only the build knows.
     text = (f"#define KARAOKE_RATE5 {rate5(song.hz)}\n"
-            f"#define KARAOKE_LEAD_TICKS {lead}\n")
+            f"#define KARAOKE_LEAD_TICKS {lead}\n"
+            f"#define KARAOKE_CONTACT_COUNT {len(cues)}\n")
     if lyrics_source is not None:
         validate_cues(read_lyrics(lyrics_source)[1], cues)
     breaks = detect_breaks(cues, lead, song.highlights[1])
