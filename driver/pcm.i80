@@ -562,9 +562,7 @@ pcm_fill_resume:
         LD HL,$6000
         LD B,8
 pcm_resume_bank:
-        PUSH AF
-        RST $08
-        POP AF
+        ; As in read, no software DAC/patch service inside the latch writes.
         LD (HL),A
         RRCA
         DJNZ pcm_resume_bank

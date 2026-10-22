@@ -212,7 +212,9 @@ bank_bits:
         LD (HL),A
         RRCA
         LD E,A
-        RST $08
+        ; Nine latch writes are one transaction. RST $08 may commit a queued
+        ; patch, recursively read ROM and restore the bank mid-transaction.
+        ; IRQ DAC service does not touch the latch; this span is <200 clocks.
         DJNZ bank_bits
         XOR A
         LD (HL),A
