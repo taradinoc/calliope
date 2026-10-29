@@ -5,6 +5,8 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import shutil
+import time
 import unittest
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'tools'))
@@ -71,7 +73,7 @@ class BuildConfig(unittest.TestCase):
         self.assertEqual(result.returncode,0,result.stdout+result.stderr);self.assertIn('TIMER=1020',result.stdout)
         first=(self.root/'output/calliope_build.h').stat().st_mtime_ns
         result=subprocess.run(command,cwd=self.root,capture_output=True,text=True,timeout=30)
-        self.assertEqual(result.returncode,0,result.stdout+result.stderr);self.assertEqual(first,(self.root/'output/calliope_build.h').stat().st_mtime_ns)
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr);self.assertEqual(first,(self.root/'output/calliope_build.h').stat().st_mtime_ns);self.assertNotIn('configure.py',result.stdout)
         result=subprocess.run(command+['CALLIOPE_HYBRID=0','CALLIOPE_PCM_TIMER=1020'],cwd=self.root,capture_output=True,text=True,timeout=30)
         self.assertEqual(result.returncode,0,result.stdout+result.stderr);self.assertIn('TIMER=1016',result.stdout)
         self.assertFalse(json.loads((self.root/'output/calliope_config.json').read_text())['hybrid'])
@@ -85,4 +87,42 @@ class BuildConfig(unittest.TestCase):
         self.header.write_text('#define CALLIOPE_HYBRID 0\n')
         result=subprocess.run(command,cwd=self.root,capture_output=True,text=True,timeout=30)
         self.assertEqual(result.returncode,0,result.stdout+result.stderr);self.assertIn('TIMER=1016',result.stdout)
+    def test_bank_wrappers_nested_headers_and_idle_builds(self):
+        shutil.copytree(ROOT/'examples/minimal/audio', self.root/'audio')
+        nested=self.root/'nested audio.h'
+        nested.write_text('#ifndef CALLIOPE_HYBRID\n#define CALLIOPE_HYBRID 1\n#endif\n')
+        self.header.write_text('#include "nested audio.h"\n')
+        make=self.root/'Makefile'
+        make.write_text('GDK := '+SDK.as_posix()+'\nCALLIOPE_HOME := '+ROOT.as_posix()+'\nCALLIOPE_PYTHON := '+sys.executable+'\nCALLIOPE_CONFIG_HEADER := project audio.h\nCALLIOPE_BUILD_DIR := output\nCALLIOPE_DRIVER_ASM := output/driver.s\nCALLIOPE_SOURCE_WRAPPERS := 1\nCALLIOPE_BANK := audio/manifest.json\nOUT := output\ninclude '+ROOT.as_posix()+'/make/calliope.mk\nprobe: calliope-config\n')
+        command=[str(sgdk_tool(SDK,'make')),'-f',str(make),'probe']
+        def run(*options):
+            result=subprocess.run(command+list(options),cwd=self.root,capture_output=True,text=True,timeout=60)
+            self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+            return result
+        run()
+        output=self.root/'output'
+        before={p:p.stat().st_mtime_ns for p in output.rglob('*')if p.is_file()}
+        self.assertNotIn('configure.py',run().stdout)
+        self.assertEqual(before,{p:p.stat().st_mtime_ns for p in before})
+        for name in ('driver.s','audio.h','adapter.c','configure.d'):
+            (output/name).unlink()
+            self.assertIn('configure.py',run().stdout)
+            self.assertTrue((output/name).exists())
+            self.assertNotIn('configure.py',run().stdout)
+        source=self.root/'audio/click.wav'
+        time.sleep(1.1);source.touch()
+        bank=(output/'bank.bin').stat().st_mtime_ns
+        self.assertIn('configure.py',run().stdout)
+        self.assertEqual(bank,(output/'bank.bin').stat().st_mtime_ns)
+        self.assertNotIn('configure.py',run().stdout)
+        time.sleep(1.1)
+        nested.write_text('#ifndef CALLIOPE_HYBRID\n#define CALLIOPE_HYBRID 0\n#endif\n')
+        run();self.assertFalse(json.loads((output/'calliope_config.json').read_text())['hybrid'])
+        run('CALLIOPE_HYBRID=1')
+        self.assertTrue(json.loads((output/'calliope_config.json').read_text())['hybrid'])
+        run();self.assertFalse(json.loads((output/'calliope_config.json').read_text())['hybrid'])
+        original=(output/'bank.bin').read_bytes()
+        run('CALLIOPE_REGION=pal')
+        self.assertEqual(json.loads((output/'calliope_config.json').read_text())['region'],'pal')
+        run();self.assertEqual((output/'bank.bin').read_bytes(),original)
 if __name__=='__main__':unittest.main()

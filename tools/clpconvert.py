@@ -22,6 +22,7 @@ def same_contents(path, data):
 
 
 def atomic(path, data):
+    sys.audit("build.output", str(path))
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     if same_contents(path, data):

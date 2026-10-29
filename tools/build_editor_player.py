@@ -31,7 +31,7 @@ def main():
             (stage/'res/audio.res').write_text('// Bank generated directly by Calliope.\n')
             main=(ROOT/'editor/player/src/main.c').read_text().replace('ADAPTER_SOURCE',(ROOT/'src/calliope.c').as_posix())
             (stage/'src/main.c').write_text(main)
-            (stage/'Makefile').write_text(f'GDK ?= {a.sgdk.as_posix()}\nCALLIOPE_HOME := {ROOT.as_posix()}\nCALLIOPE_SOURCE_WRAPPERS := 0\nCALLIOPE_BANK := bank.json\ninclude $(GDK)/makefile.gen\ninclude {ROOT.as_posix()}/make/calliope.mk\n')
+            (stage/'Makefile').write_text(f'GDK ?= {a.sgdk.as_posix()}\nCALLIOPE_HOME := {ROOT.as_posix()}\nCALLIOPE_SOURCE_WRAPPERS := 0\nCALLIOPE_BANK := bank.json\ninclude $(CALLIOPE_HOME)/make/sgdk.mk\ninclude {ROOT.as_posix()}/make/calliope.mk\n')
             # The adapter lives in main.c for version-bound hybrid telemetry.
             (stage/'src/bus.s').write_text('.include "'+(ROOT/'src/hybrid_bus.s').as_posix()+'"\n')
             command=[sys.executable,str(ROOT/'tools/build_editor_player_stage.py'),str(stage),'--sgdk',str(a.sgdk),'--region',region,'--hybrid' if mode=='hybrid' else '--pure-z80']

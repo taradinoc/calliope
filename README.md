@@ -21,8 +21,10 @@ LEFT plays PSG ring, RIGHT plays PCM, and START holds DMA stress.
 
 For a small starting point using original synthetic assets, build
 [examples/minimal](examples/minimal/README.md). New and existing SGDK projects
-can integrate with one Make include: see the [consumer guide](docs/integration.md),
+can use the incremental Make integration: see the [consumer guide](docs/integration.md),
 including migration instructions for existing Calliope consumers.
+See [incremental consumer builds](docs/incremental-build.md) for dependencies,
+missing-output recovery, and idle-build guarantees.
 No JDK is required by this default workflow; the optional rescomp extension
 still requires one to build.
 

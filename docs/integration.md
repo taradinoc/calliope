@@ -48,7 +48,7 @@ CALLIOPE_HOME := ../Calliope
 CALLIOPE_BANK := audio/manifest.json
 CALLIOPE_REGION := ntsc
 CALLIOPE_HYBRID := 0
-include $(GDK)/makefile.gen
+include $(CALLIOPE_HOME)/make/sgdk.mk
 include $(CALLIOPE_HOME)/make/calliope.mk
 ```
 
@@ -209,3 +209,6 @@ pending request, and each consumed song start resets the scale to normal.
 SFX timing and PCM playback pitch/duration are unchanged. Effective music rate
 rounds to 0.2 Hz. Hybrid changes affect future prepared audio, with its existing
 lookahead delay. See [runtime controls](runtime-controls.md) for the full contract.
+
+See [incremental builds](incremental-build.md) for dependency tracking and migration
+from a direct SGDK include. Calliope's SGDK wrapper leaves the installed SDK unchanged.

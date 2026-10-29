@@ -4,5 +4,5 @@ endif
 CALLIOPE_HOME ?= $(abspath ../..)
 CALLIOPE_BANK ?= bank.json
 CALLIOPE_HYBRID ?= 1
-include $(GDK)/makefile.gen
+include $(CALLIOPE_HOME)/make/sgdk.mk
 include $(CALLIOPE_HOME)/make/calliope.mk

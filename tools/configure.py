@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def write(path, text):
+    __import__("sys").audit("build.output", str(path))
     path = Path(path)
     raw = text.replace("\r\n", "\n").replace("\n", "\r\n").encode()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -43,7 +44,18 @@ def resolve(sgdk, header, hybrid=None, host_pcm=None):
     command.append("-")
     source = '#include "' + header.as_posix() + '"\n#include "calliope_config.h"\n'
     source += "#if CALLIOPE_HYBRID\nCLP_HYBRID 1\n#else\nCLP_HYBRID 0\n#endif\n#if CALLIOPE_HOST_PCM\nCLP_HOST_PCM 1\n#else\nCLP_HOST_PCM 0\n#endif\nCLP_TIMER CALLIOPE_PCM_TIMER_A\n"
-    result = subprocess.run(command, input=source, capture_output=True, text=True)
+    with tempfile.TemporaryDirectory(prefix="calliope-includes-") as temporary:
+        dependencies = Path(temporary) / "headers.d"
+        command[1:1] = ["-MD", "-MF", str(dependencies)]
+        result = subprocess.run(command, input=source, capture_output=True, text=True)
+        if dependencies.exists():
+            import shlex
+            body = dependencies.read_text().replace("\\\n", " ")
+            for name in shlex.split(body.split(": ", 1)[-1], posix=True):
+                path = Path(name)
+                if path.is_file():
+                    __import__("sys").audit("build.input", str(path))
+                    path.read_bytes()
     if result.returncode:
         raise ValueError("invalid Calliope configuration:\n" + result.stderr.strip())
     fields = dict(
@@ -88,6 +100,8 @@ def prepare(sgdk, header, out, driver_asm, hybrid=None, host_pcm=None, make_writ
     stamp = out / "calliope_driver.cache.json"
     image = out / "driver.bin"
     listing = out / "driver.lst"
+    for product in (stamp, image, listing):
+        __import__("sys").audit("build.output", str(product))
     try:
         cached = json.loads(stamp.read_text())
         hit = (
@@ -283,6 +297,7 @@ def main():
         for name in ("bank.s", "audio.h", "clp_ids.h"):
             signature.update((a.output_dir / name).read_bytes())
         make_text += "# Bank signature: " + signature.hexdigest() + "\n"
+    make_text += "CLP_PREPARED_SETTINGS := " + os.environ.get("CALLIOPE_MAKE_SETTINGS", "") + "\n"
     write(make_path, make_text)
     print(
         "Calliope mode: "

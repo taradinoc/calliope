@@ -4,7 +4,7 @@ endif
 CALLIOPE_HOME ?= $(abspath ..)
 CALLIOPE_BANK ?= ../examples/bank.json
 CALLIOPE_BUILD_DIR ?= ../out
-include $(GDK)/makefile.gen
+include $(CALLIOPE_HOME)/make/sgdk.mk
 ifneq ($(strip $(OUT_DIR)),)
 # Current SGDK supplies its own boot object and generated ROM header.
 OBJS := $(filter-out $(OUT_DIR)/src/boot/%,$(OBJS))
