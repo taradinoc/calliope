@@ -2,7 +2,7 @@
 #include <genesis.h>
 #include "screen.h"
 #include "diagnostics.h"
-#include "lyrics.h"
+#include "song.h"
 #include "karaoke.h"
 
 #define SCREEN_COLUMNS 40
@@ -41,7 +41,7 @@ static u16 lineColumn(u16 line)
 
 static void paint(u16 line, u16 start, u16 end, u16 palette)
 {
-    char text[39];
+    char text[41];
     u16 i, length = 0;
     for (i = start; i < end; ++i)
         if (lyrics[line][i] != '_') text[length++] = lyrics[line][i];
@@ -98,6 +98,7 @@ void screenReset(void)
 {
     u16 i;
     overlay = FALSE;
+    VDP_clearPlane(WINDOW, TRUE);
     karaokeDebug.textWrites = 0;
     /* The end card reuses this palette block and tile index. */
     loadPalettes();
@@ -240,9 +241,9 @@ void screenEndImage(void)
     ++karaokeDebug.textWrites;
 }
 
-void screenRestartPrompt(void)
+void screenMenuPrompt(void)
 {
-    static const char prompt[] = "PRESS A TO RESTART";
+    static const char prompt[] = "PRESS START FOR SONG MENU";
     VDP_setWindowOff();
     overlay = FALSE;
     VDP_setVerticalScrollVSync(BG_A, 0);
@@ -254,4 +255,27 @@ void screenRestartPrompt(void)
                   (SCREEN_COLUMNS - sizeof(prompt) + 1) / 2, centerRow,
                   DMA_QUEUE_COPY);
     karaokeDebug.textWrites += sizeof(prompt) - 1;
+}
+
+void screenMenu(const KaraokeSong *choices, u16 count, u16 selected)
+{
+    u16 i;
+    VDP_setWindowOff();
+    overlay = FALSE;
+    loadPalettes();
+    VDP_clearPlane(BG_A, TRUE);
+    VDP_clearPlane(BG_B, TRUE);
+    VDP_clearPlane(WINDOW, TRUE);
+    VDP_setVerticalScrollVSync(BG_A, 0);
+    screenBall(0, 0, 0, 0, FALSE, FALSE);
+    centered("SELECT A SONG", centerRow - 10);
+    for (i = 0; i < count; ++i) {
+        u16 row = centerRow - count + i * 2;
+        VDP_drawTextEx(WINDOW, choices[i].title,
+                      TILE_ATTR(i == selected ? WORD_PAL : UPCOMING_PAL, FALSE, FALSE, FALSE),
+                      (SCREEN_COLUMNS - strlen(choices[i].title)) / 2, row, DMA_QUEUE_COPY);
+    }
+    centered("UP/DOWN TO SELECT", centerRow + 9);
+    centered("PRESS START TO PLAY", centerRow + 11);
+    VDP_setWindowVPos(TRUE, 0);
 }

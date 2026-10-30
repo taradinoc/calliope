@@ -3,8 +3,8 @@
 #include "calliope.h"
 #include "audio.h"
 #include "clp_ids.h"
-#include "lyrics.h"
-#include "timing.h"
+#include "song.h"
+#include "songs.h"
 #include "screen.h"
 #include "diagnostics.h"
 
@@ -29,8 +29,11 @@ typedef enum {
 /* The end card appears one advance after the last contact, then the replay
    prompt one advance after the song ends. */
 typedef enum {
-    STAGE_LYRICS, STAGE_IMAGE, STAGE_PROMPT
+    STAGE_LYRICS, STAGE_IMAGE, STAGE_PROMPT, STAGE_MENU
 } Stage;
+
+const KaraokeSong *song = &songs[0];
+static u16 selectedSong;
 
 static Cue cues[CUE_CAPACITY];
 static u16 readCue, writeCue, generation, contacts;
@@ -260,7 +263,7 @@ static void advancePresentation(void)
     } else if (stage == STAGE_IMAGE && songEndTime &&
                clockTime >= songEndTime + advance) {
         stage = STAGE_PROMPT;
-        screenRestartPrompt();
+        screenMenuPrompt();
     }
 }
 
@@ -279,8 +282,16 @@ static void restart(void)
     memset((void *)&karaokeDebug, 0, sizeof(karaokeDebug));
     screenReset();
     /* clp_init initializes the driver once. clp_start queues this playback. */
-    generation = clp_start(CLP_SONGS_KARAOKE);
+    generation = clp_start(song->id);
     if (!generation) fail(ERROR_AUDIO);
+}
+
+static void showMenu(void)
+{
+    stopped = TRUE;
+    completed = FALSE;
+    stage = STAGE_MENU;
+    screenMenu(songs, SONG_COUNT, selectedSong);
 }
 
 static void inspectStatus(void)
@@ -303,6 +314,7 @@ static void publishDiagnostics(void)
     karaokeDebug.queued = writeCue - readCue;
     karaokeDebug.clock = clockTime;
     karaokeDebug.stage = stage;
+    karaokeDebug.selectedSong = selectedSong;
     /* Publish contacts last, after the corresponding display state. */
     karaokeDebug.contacts = contacts;
 }
@@ -316,22 +328,38 @@ int main(bool hardReset)
         screenError("Calliope initialization failed");
         while (TRUE) SYS_doVBlankProcess();
     }
-    restart();
+    showMenu();
     while (TRUE) {
         u16 buttons = JOY_readJoypad(JOY_1);
+        u16 pressed = buttons & ~previous;
         /* Hybrid Calliope needs one update per video frame, even without cues. */
         clp_update();
         /* The clock also measures the wait after playback finishes. */
         if (!stopped) clockTime += KARAOKE_RATE5;
         pollEvents();
-        if ((buttons & BUTTON_A) && !(previous & BUTTON_A)) restart();
-        if ((buttons & BUTTON_B) && !(previous & BUTTON_B)) {
-            if (!clp_stop()) fail(ERROR_AUDIO);
-            stopped = TRUE;
+        if (stage == STAGE_MENU) {
+            u16 selection = selectedSong;
+            if (pressed & BUTTON_UP)
+                selectedSong = selectedSong ? selectedSong - 1 : (u16)SONG_COUNT - 1;
+            if (pressed & BUTTON_DOWN)
+                selectedSong = (selectedSong + 1) % SONG_COUNT;
+            if (selection != selectedSong) screenMenu(songs, SONG_COUNT, selectedSong);
+            if (pressed & BUTTON_START) {
+                song = &songs[selectedSong];
+                restart();
+            }
+        } else if (completed && (pressed & BUTTON_START)) {
+            showMenu();
+        } else {
+            if ((pressed & BUTTON_A) && !completed) restart();
+            if (pressed & BUTTON_B) {
+                if (!clp_stop()) fail(ERROR_AUDIO);
+                stopped = TRUE;
+            }
         }
         previous = buttons;
         if (!stopped && stage == STAGE_LYRICS) updateDisplay();
-        inspectStatus();
+        if (stage != STAGE_MENU) inspectStatus();
         if (!stopped) advancePresentation();
         publishDiagnostics();
         SYS_doVBlankProcess();

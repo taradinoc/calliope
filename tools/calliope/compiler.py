@@ -818,6 +818,8 @@ def compile_bank(
                             ch: (voice.mode, voice.bank)
                             for ch, voice in sample_voices.items()
                         }
+                        loop_legato = {ch: voice.delayed_legato.state()
+                                       for ch, voice in {**pitches, **envelopes}.items()}
                         loop_instruments = dict(instruments)
                         loop_volumes = dict(volumes)
                         loop_noise = dict(noise_modes)
@@ -1411,6 +1413,8 @@ def compile_bank(
                                 continue
                             if effect in (3, 4) and slot in (5, 6, 7):
                                 continue
+                            if effect in (0xE8, 0xE9) and slot in (0, 1, 2, 3, 4, 5, 6, 7):
+                                continue
                             if effect == 0xE5 and slot in (0, 1, 2, 3, 4, 5, 6, 7):
                                 continue
                             if effect == 0xFF:
@@ -1692,6 +1696,7 @@ def compile_bank(
                         )
                     from .fm import validate_loop_entry
 
+                    pitch.delayed_legato.validate_loop(loop_legato[ch], entry)
                     used = fm_effects[ch]
                     if not pitch.slide_speed and not loop_slides[ch]:
                         used = used - {1, 2, 3}
@@ -1734,6 +1739,7 @@ def compile_bank(
                         raise FormatError("FM macro loop entry requires a fresh note")
                 for ch, envelope in envelopes.items():
                     entry = module.cell(sub, *loop_coordinate, ch)
+                    envelope.delayed_legato.validate_loop(loop_legato[ch], entry)
                     initial = loop_psg_vibrato[ch]
                     explicit = any(e == 4 for _, e, _ in entry.effects)
                     if (envelope.vibrato_depth, envelope.vibrato_rate) != initial[

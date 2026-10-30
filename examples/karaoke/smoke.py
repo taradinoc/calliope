@@ -17,9 +17,11 @@ from libretro_host import Host
 spec = importlib.util.spec_from_file_location("karaoke_build", HERE / "build.py")
 karaoke_build = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(karaoke_build)
-source = HERE / json.loads((HERE / "bank.json").read_text())["songs"][0]["source"]
+bank_songs = json.loads((HERE / "bank.json").read_text())["songs"]
+source = HERE / bank_songs[0]["source"]
 parser = argparse.ArgumentParser()
 parser.add_argument("--pal", action="store_true")
+parser.add_argument("--song", type=int, choices=range(1, len(bank_songs) + 1), default=1)
 parser.add_argument(
     "--lyrics",
     type=Path,
@@ -33,8 +35,10 @@ parser.add_argument(
     help="fast-forward and check blank rows below the final lyric and replay",
 )
 args = parser.parse_args()
+if args.lyrics == source.with_suffix(".txt"):
+    args.lyrics = (HERE / bank_songs[args.song - 1]["source"]).with_suffix(".txt")
 
-timing_header = (HERE / "inc/timing.h").read_text()
+timing_header = (HERE / f"inc/song{args.song - 1}_timing.h").read_text()
 music_rate5 = int(re.search(r"KARAOKE_RATE5 (\d+)", timing_header)[1])
 lead_ticks = int(re.search(r"KARAOKE_LEAD_TICKS (\d+)", timing_header)[1])
 tick_scale = 250 if args.pal else 300
@@ -71,7 +75,7 @@ field_names = (
     "stage",
 )
 field_offsets = {name: index * 2 for index, name in enumerate(field_names[:14])}
-field_offsets.update(clock=28, lastCueTime=32, stage=36)
+field_offsets.update(clock=28, lastCueTime=32, stage=36, selectedSong=38)
 
 
 def value(name, length=2):
@@ -145,6 +149,60 @@ def check_restart_prompt(screen, center_y):
     ) == {(0, 0, 0)}, "Restart prompt is not centered"
 
 
+def enter_song():
+    host.run(4, (3,))  # Start
+    host.run(3)
+    assert word("stage") == 0
+    assert word("contacts") == word("scroll") == word("queued") == 0
+
+
+def return_to_menu():
+    host.run(4, (3,))
+    host.run(3)
+    assert word("stage") == 3
+    frozen = value("clock", 4)
+    host.run(60)
+    assert value("clock", 4) == frozen
+    host.screenshot().save(HERE / "out/smoke/menu-return.png")
+    # Start the other song after the end card has replaced palettes and tiles.
+    checkpoint = host.save()
+    host.run(4, (5,))
+    host.run(4)
+    other = args.song % len(bank_songs)
+    assert word("selectedSong") == other
+    enter_song()
+    first_line = karaoke_build.read_lyrics(
+        (HERE / bank_songs[other]["source"]).with_suffix(".txt"))[1][0]
+    first_word = re.search(r"[^ _-]+", first_line)
+    for _ in range(5000):
+        host.run(1)
+        assert word("fault") == word("eventsLost") == 0
+        if word("contacts"):
+            break
+    assert word("contacts") == 1
+    assert word("line") == 0 and word("wordEnd") == first_word.end()
+    host.load(checkpoint)
+    host.run(4)
+
+
+host.run(60)
+assert word("stage") == 3, "Startup song menu missing"
+assert word("contacts") == value("clock", 4) == 0
+host.screenshot().save(HERE / "out/smoke/menu.png")
+# Up wraps from the first song to the last; Down wraps back.
+host.run(4, (4,))
+host.run(4)
+assert word("selectedSong") == len(bank_songs) - 1
+host.run(4, (5,))
+host.run(4)
+assert word("selectedSong") == 0
+for _ in range(args.song - 1):
+    host.run(4, (5,))
+    host.run(4)
+assert word("selectedSong") == args.song - 1
+enter_song()
+
+
 if args.end_only:
     try:
         # Fast-forward to the last words. The final wait is shorter than one
@@ -188,8 +246,8 @@ if args.end_only:
         end = host.screenshot()
         end.save(HERE / "out/smoke/end.png")
         check_restart_prompt(end, center_y)
-        host.run(1, (1,))
-        host.run(3)
+        return_to_menu()
+        enter_song()
         assert word("contacts") == word("scroll") == word("queued") == 0
         assert word("stage") == 0
         replay = host.screenshot()
@@ -348,9 +406,8 @@ try:
         duration=17,
         loop=0,
     )
-    # A restores the title splash.
-    host.run(1, (1,))
-    host.run(3)
+    return_to_menu()
+    enter_song()
     assert word("started") == 0 and word("line") == 0
     assert word("wordEnd") == 0
     assert word("stage") == 0

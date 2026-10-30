@@ -44,6 +44,50 @@
           "slot": "noise"
         }
       ]
+    },
+    {
+      "id": 2,
+      "name": "night_by_night",
+      "source": "night_by_night_karaoke.fur",
+      "external_commands": "passthrough",
+      "voices": [
+        {
+          "channel": 0,
+          "slot": "fm0"
+        },
+        {
+          "channel": 1,
+          "slot": "fm1"
+        },
+        {
+          "channel": 2,
+          "slot": "fm2"
+        },
+        {
+          "channel": 3,
+          "slot": "fm3"
+        },
+        {
+          "channel": 4,
+          "slot": "fm4"
+        },
+        {
+          "channel": 5,
+          "slot": "pcm"
+        },
+        {
+          "channel": 6,
+          "slot": "tone0"
+        },
+        {
+          "channel": 7,
+          "slot": "tone1"
+        },
+        {
+          "channel": 9,
+          "slot": "noise"
+        }
+      ]
     }
   ],
   "marker_advance_ticks": 95

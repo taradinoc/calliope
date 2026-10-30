@@ -31,3 +31,7 @@ examples/karaoke/inc/timing.h
 
 examples/minimal/out/
 examples/minimal/src/boot/
+
+examples/karaoke/inc/songs.h
+examples/karaoke/inc/song*_lyrics.h
+examples/karaoke/inc/song*_timing.h

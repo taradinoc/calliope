@@ -1,4 +1,4 @@
-"""Row-bounded note cuts/releases following Furnace playback.cpp."""
+"""Note timing effects following Furnace playback.cpp."""
 
 from .furnace import FormatError, Reader
 
@@ -62,3 +62,45 @@ def fm_delay(cell, ticks, policy):
             continue
         delay = value
     return delay
+
+
+class DelayedLegato:
+    """E8xy/E9xy: shift the held note on tick x without key-on.
+
+    Furnace starts the countdown at x+1 and ticks it on the effect's row.
+    It survives row boundaries until it fires or another E8/E9 replaces it.
+    """
+    def __init__(self):
+        self.remaining = 0
+        self.semitones = 0
+        self.used = False
+
+    def begin(self, cell):
+        for _, effect, value in cell.effects:
+            if effect in (0xE8, 0xE9):
+                value = value or 0
+                if type(value) is not int or not 0 <= value <= 255:
+                    raise FormatError("E8/E9 delayed legato must be 0..255")
+                self.used = True
+                self.semitones = (value & 15) * (-1 if effect == 0xE9 else 1)
+                self.remaining = (value >> 4) + 1 if self.semitones else 0
+
+    def tick(self):
+        if self.remaining:
+            self.remaining -= 1
+            if not self.remaining:
+                shift = self.semitones
+                self.semitones = 0
+                return shift
+        return 0
+
+    def state(self):
+        return self.remaining, self.semitones
+
+    def validate_loop(self, initial, entry):
+        if not self.used:
+            return
+        if entry.note is None or entry.note >= 180:
+            raise FormatError("delayed legato loop entry requires a fresh note")
+        if self.state() != initial and not any(e in (0xE8, 0xE9) for _, e, _ in entry.effects):
+            raise FormatError("loop entry must reset changed delayed legato countdown")

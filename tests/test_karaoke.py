@@ -22,13 +22,13 @@ class Karaoke(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             manifest, output = Path(tmp)/"bank.json", Path(tmp)/"timing.h"
             manifest.write_text(json.dumps(item))
-            build.generate_timing(ROOT / "examples/karaoke/always_coca_cola_karaoke.fur", manifest, output)
-            self.assertIn("KARAOKE_RATE5 238", output.read_text())
+            build.generate_timing(ROOT / "examples/karaoke/another_night_karaoke.fur", manifest, output)
+            self.assertIn("KARAOKE_RATE5 336", output.read_text())
             self.assertIn("KARAOKE_LEAD_TICKS 60", output.read_text())
 
     def test_row_speed_allowed_but_tick_rate_change_rejected(self):
         build = self.load_build()
-        source = ROOT / "examples/karaoke/always_coca_cola_karaoke.fur"
+        source = ROOT / "examples/karaoke/another_night_karaoke.fur"
         module = parse(source)
         pattern = module.patterns.setdefault((0, 0, module.subsongs[0].orders[0][0]), {})
         cell = pattern.setdefault(0, Cell())
@@ -49,14 +49,14 @@ class Karaoke(unittest.TestCase):
             manifest = Path(tmp)/"bank.json"
             manifest.write_text(json.dumps(item))
             with self.assertRaisesRegex(ValueError, "clamp to song start"):
-                build.generate_timing(ROOT / "examples/karaoke/always_coca_cola_karaoke.fur", manifest, Path(tmp)/"timing.h")
+                build.generate_timing(ROOT / "examples/karaoke/another_night_karaoke.fur", manifest, Path(tmp)/"timing.h")
 
     def test_timing_rejects_simultaneous_contacts(self):
         build = self.load_build()
-        source = ROOT / "examples/karaoke/always_coca_cola_karaoke.fur"
+        source = ROOT / "examples/karaoke/another_night_karaoke.fur"
         module = parse(source)
-        cell = module.cell(0, 2, 28, 6)
-        self.assertIn((0, 0xee, 0xf0), cell.effects)
+        cell = next(cell for pattern in module.patterns.values() for cell in pattern.values()
+                    if any(e == 0xee and v == 0xf0 for _, e, v in cell.effects))
         cell.effects.append((1, 0xee, 0xf1))
         with tempfile.TemporaryDirectory() as tmp, patch.object(build, "parse", return_value=module):
             with self.assertRaisesRegex(ValueError, "separate music tick"):
@@ -74,6 +74,7 @@ class Karaoke(unittest.TestCase):
         manifest = json.loads(path.read_text())
         lead = manifest["marker_advance_ticks"]
         self.assertEqual(lead, 95)
+        manifest["songs"] = manifest["songs"][:1]
         manifest["songs"][0]["source"] = str(path.parent / manifest["songs"][0]["source"])
         timelines = []
         with tempfile.TemporaryDirectory() as tmp:
@@ -95,7 +96,7 @@ class Karaoke(unittest.TestCase):
         self.assertEqual([(tick + lead, event, channel) for tick, event, channel in timelines[1]], timelines[0])
 
     def test_authored_cues_match_every_word(self):
-        module = parse(ROOT / "examples/karaoke/always_coca_cola_karaoke.fur")
+        module = parse(ROOT / "examples/karaoke/another_night_karaoke.fur")
         song = module.subsongs[0]
         words = []
         for order in range(len(song.orders[0])):
@@ -104,17 +105,35 @@ class Karaoke(unittest.TestCase):
                     for _, effect, value in module.cell(0, order, row, channel).effects:
                         if effect == 0xee and value == 0xf0: words.append(1)
                         elif effect == 0xee and value == 0xf1: words[-1] += 1
-        lines = self.load_build().read_lyrics(ROOT / "examples/karaoke/always_coca_cola_karaoke.txt")[1]
+        lines = self.load_build().read_lyrics(ROOT / "examples/karaoke/another_night_karaoke.txt")[1]
         self.assertEqual(words, [len(re.findall(r"[^ _-]+", line)) for line in lines if line.strip()])
 
     def test_build_validates_all_authored_cues(self):
         build = self.load_build()
         with tempfile.TemporaryDirectory() as tmp:
-            for name in ("always_coca_cola_karaoke", "another_night_karaoke"):
+            for index, name in enumerate(("another_night_karaoke", "night_by_night_karaoke")):
                 build.generate_timing(ROOT / f"examples/karaoke/{name}.fur",
                                       ROOT / "examples/karaoke/bank.json",
                                       Path(tmp) / "timing.h",
-                                      ROOT / f"examples/karaoke/{name}.txt")
+                                      ROOT / f"examples/karaoke/{name}.txt", song_index=index)
+
+    def test_multi_song_tables_keep_independent_timing_and_ids(self):
+        build = self.load_build()
+        path = ROOT / "examples/karaoke/bank.json"
+        bank = json.loads(path.read_text())
+        for item in bank["songs"]:
+            item["source"] = str(path.parent / item["source"])
+        bank["songs"][1]["marker_advance_ticks"] = 60
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            manifest = folder / "bank.json"
+            manifest.write_text(json.dumps(bank))
+            build.generate_songs(manifest, folder)
+            self.assertIn("song0_KARAOKE_RATE5 336", (folder / "song0_timing.h").read_text())
+            self.assertIn("song0_KARAOKE_LEAD_TICKS 95", (folder / "song0_timing.h").read_text())
+            self.assertIn("song1_KARAOKE_RATE5 252", (folder / "song1_timing.h").read_text())
+            self.assertIn("song1_KARAOKE_LEAD_TICKS 60", (folder / "song1_timing.h").read_text())
+            self.assertIn("{2, song1_KARAOKE_TITLE", (folder / "songs.h").read_text())
 
     def test_cue_validation_reports_line_and_segment_mismatches(self):
         build = self.load_build()
@@ -151,12 +170,12 @@ class Karaoke(unittest.TestCase):
         build = self.load_build()
         with tempfile.TemporaryDirectory() as tmp:
             source, output = Path(tmp)/"lyrics.txt", Path(tmp)/"lyrics.h"
-            line = "_".join("a" * 38)
+            line = "_".join("a" * 40)
             source.write_text(line)
             build.generate_lyrics(source, output)
             self.assertIn(json.dumps(line), output.read_text())
-            source.write_text("_".join("a" * 39))
-            with self.assertRaisesRegex(ValueError, "38 columns"):
+            source.write_text("_".join("a" * 41))
+            with self.assertRaisesRegex(ValueError, "40 columns"):
                 build.generate_lyrics(source, output)
             source.write_text("_ - ___")
             with self.assertRaisesRegex(ValueError, "contain a word"):
@@ -173,9 +192,9 @@ class Karaoke(unittest.TestCase):
             self.assertNotIn('"",', output.read_text())
 
     def test_psg_portamento_keeps_envelope_and_reaches_target(self):
-        module = parse(ROOT / "examples/karaoke/always_coca_cola_karaoke.fur")
+        module = parse(ROOT / "examples/karaoke/another_night_karaoke.fur")
         envelope = VolumeEnvelope(True)
-        instrument = module.instruments[6]
+        instrument = next(ins for ins in module.instruments if ins["kind"] == 0)
         envelope.begin(Cell(note=87, instrument=6), instrument)
         envelope.tick()
         cursors = envelope.cursors

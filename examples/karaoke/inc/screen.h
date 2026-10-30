@@ -2,6 +2,7 @@
 #define KARAOKE_SCREEN_H
 
 #include <genesis.h>
+#include "song.h"
 
 #define LYRIC_LINE_STEP 16
 #define BALL_MAX_HEIGHT 40
@@ -18,7 +19,8 @@ void screenLyrics(void);
 /* Full-screen end card, then the cleared screen with the replay prompt.
    screenReset() restores the state both functions replace. */
 void screenEndImage(void);
-void screenRestartPrompt(void);
+void screenMenuPrompt(void);
+void screenMenu(const KaraokeSong *choices, u16 count, u16 selected);
 
 /* Cue spans use source-string offsets, including hidden underscores. */
 u16 screenWordCenter(u16 line, u16 start, u16 end);

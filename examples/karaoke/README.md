@@ -15,8 +15,9 @@ python examples/karaoke/build.py
 ```
 
 Open `examples/karaoke/out/rom.bin` in a Genesis / Mega Drive emulator.
-Playback starts automatically. **A** replays the song. **B** stops playback
-and freezes the display. Hybrid mode is the default, with about 13.32 kHz PCM.
+The startup menu lists Another Night and Night by Night. **Up/Down** selects a
+song and **Start** plays it. **A** replays during playback. **B** stops playback
+and freezes the display. After completion, **Start** returns to the song menu. Hybrid mode is the default, with about 13.32 kHz PCM.
 The build also accepts `--region pal`, `--pure-z80`, and `--sgdk PATH`.
 See [consumer integration](../../docs/integration.md) for the build requirements.
 
@@ -35,7 +36,7 @@ external-command notification.
 The Calliope calls follow this order:
 
 1. `clp_init(clp_bank, sizeof(clp_bank))` initializes the driver with the ROM bank.
-2. `generation = clp_start(CLP_SONGS_KARAOKE)` queues a new playback.
+2. `generation = clp_start(song->id)` queues a new playback.
 3. `clp_update()` services playback once per video frame.
 4. `clp_poll()` returns notifications for the current playback.
 5. `clp_status()` reports completion, driver faults, and lost events.
@@ -59,9 +60,10 @@ Each call consumes at most four records. Poll full batches again to process
 simultaneous notifications promptly. An empty return can also mean that the
 call consumed stale records. Continue polling on the next frame.
 
-The bank sets `marker_advance_ticks` to 95. The current song, Another Night,
+The bank sets `marker_advance_ticks` to 95. Another Night
 runs at 67.2 music ticks per second, so notifications arrive about 1.414 seconds
-early. Advance changes the notification time, while audio retains its original
+early. Night by Night runs at 50.4 ticks per second, so its notifications arrive
+about 1.885 seconds early. Advance changes the notification time, while audio retains its original
 timing.
 
 `event.tick` is the notification's music tick. It is not the future segment's tick.
@@ -112,27 +114,28 @@ The last line stays centered during the final wait.
 One marker advance after the final word, the lyric screen is replaced by a
 full-screen end card from `media/sound-by-calliope.bmp`. If the song ends before
 that wait completes, playback completion starts the card early. One advance
-after playback ends, the screen clears and `PRESS A TO RESTART` appears in the
-center. **A** replays from the title splash. `res/karaoke.res` compiles the card
+after playback ends, the screen clears and `PRESS START FOR SONG MENU` appears in the
+center. **Start** returns to the menu, keeping the previous selection. `res/karaoke.res` compiles the card
 as an SGDK `IMAGE`. The card replaces the lyric palettes and the first user tile
 block, so `screenReset()` restores both before a replay.
 
-To change songs, set the first song's `source` in `bank.json` and put the lyrics
-in a `.txt` file beside that `.fur` file with the same stem. The build currently
-reads `another_night_karaoke.txt` and generates `inc/lyrics.h`.
+To add a song, add an entry with a unique ID in `bank.json` and put its lyrics
+in a `.txt` file beside the `.fur` file with the same stem. Up to eight songs
+fit the menu. The build generates per-song `inc/songN_lyrics.h` and
+`inc/songN_timing.h` tables, plus `inc/songs.h` to bind each bank ID to its
+presentation data. `inc/song.h` defines the shared runtime structure.
 `TITLE:` and `ARTIST:` fields supply the opening splash. The splash replaces
 lyrics until the first ball appears, and returns on replay. Blank lines and
 metadata fields are omitted from the lyric table. Segments end at spaces,
 hyphens, underscores, or line boundaries. Underscores stay in the source text
 but occupy no display column. For example, `when_ev_er` appears as `whenever`. Its three segments require three cues, with separate
 highlights and ball contacts centered on `when`, `ev`, and `er`.
-Visible text must use printable ASCII and fit 38 columns. `inc/timing.h` contains
+Visible text must use printable ASCII and fit 40 columns (title and artist metadata must fit 38). Each timing header contains
 the module's tick rate, effective advance (including a song-level override), the
-expected contact count, and break intervals in original music ticks. Treat both
-headers as generated assets; edit the source files instead.
+expected contact count, and break intervals in original music ticks. Edit the source files instead of these generated headers.
 Rebuild after changing either source asset or the manifest.
 
-This example expects one non-looping song and one cue per segment. The build
+Each song must be non-looping and have one cue per segment. The build
 compares every line and segment count against the cues in resolved playback order.
 It reports segment mismatches by line number and rejects word cues before the
 first line cue. Count validation cannot tell whether a cue matches the sung
@@ -153,7 +156,8 @@ and [arrangements](../../docs/arrangements.md) for the two mechanisms.
 `inc/diagnostics.h` defines an emulator snapshot for `smoke.py`. Playback
 decisions do not use that snapshot. Run `python examples/karaoke/smoke.py` to
 check all contacts, early line scrolling, stable text pixels, errors, stop,
-and replay. Use `--pal` after a PAL build. Use `--core PATH` to select your
+menu return,
+and replay. Use `--song 2` to check Night by Night, and `--pal` after a PAL build. Use `--core PATH` to select your
 Genesis Plus GX libretro DLL. Screenshots and `bounce.gif` appear in `out/smoke/`.
 Run `python -m unittest discover -s tests -p test_karaoke.py` from the repository
 root to check asset validation and timing rules without an emulator.

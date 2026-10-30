@@ -254,6 +254,8 @@ class VolumeEnvelope:
     ):
         from .arpeggio import Arpeggio
 
+        from .note_timing import DelayedLegato
+        self.delayed_legato = DelayedLegato()
         self.tracker_arp = Arpeggio(arp_options, True)
         self.tracker_base = None
         from .volume import Slide
@@ -291,6 +293,7 @@ class VolumeEnvelope:
         from .macros import sequences, Cursor
 
         self.porta_first = True
+        self.delayed_legato.begin(cell)
         for _, effect, value in cell.effects:
             if effect == 3:
                 if not self.linear:
@@ -352,6 +355,11 @@ class VolumeEnvelope:
                 raise FormatError("unsupported PSG note command")
 
     def tick(self, cut=None):
+        shift = self.delayed_legato.tick()
+        if shift and self.note is not None:
+            self.note += shift
+            self.porta_position = self.note * 128
+            self.tracker_base = self.note
         if cut == 180:
             self.active = False
             self.cursors = {}

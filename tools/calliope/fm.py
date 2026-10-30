@@ -72,6 +72,8 @@ class Pitch:
     ):
         from .arpeggio import Arpeggio
 
+        from .note_timing import DelayedLegato
+        self.delayed_legato = DelayedLegato()
         self.tracker_arp = Arpeggio(arp_options)
         self.options = options or {}
         self.base = 0
@@ -106,6 +108,7 @@ class Pitch:
 
         self.fresh = False
         self.row_tick = 0
+        self.delayed_legato.begin(cell)
         if cell.instrument is not None:
             sequences(instrument, (0, 1, 4), 1)
         last_slide = 0
@@ -258,6 +261,10 @@ class Pitch:
                 self.slide_kind = 0
 
     def tick(self, cut=None):
+        shift = self.delayed_legato.tick()
+        if shift and self.note is not None:
+            self.note += shift
+            self.base = self.position(self.note)
         vibrato = 0
         if self.vibrato_depth:
             self.vibrato_phase = (self.vibrato_phase + self.vibrato_rate) & 63

@@ -115,6 +115,13 @@ Music rates range from 25 to 120 Hz in 0.2 Hz steps. The Z80 accrues fractional 
 
 The converter accepts an initial 1..16-entry speed sequence, 09 groove/first-speed selection, 0F speed selection, C0..C3 direct Hz, and F0 BPM-derived Hz (value times 2/5). It reads GROV blocks from both supported formats. Zero speed values leave speed unchanged. Virtual tempo must be 1:1. Legacy speed selection with a nonuniform sequence is rejected, including sequences introduced by effects.
 
+E8xy and E9xy delayed legato are supported for FM voices and music PSG tone
+voices. E8 raises the held note by y semitones; E9 lowers it. The change occurs
+on tick x (zero-based), without a key-on or macro restart. The countdown can
+cross rows; another E8/E9 replaces it, and y=0 cancels it. Loop entries using
+these effects must establish a fresh note and preserve or reset the countdown.
+
+
 A looping song must re-enter with the same speed sequence, phase and rate, or explicitly restore them at the loop entry. The converter rejects a mismatched loop. Modern 0B/0D control flow is compiled as described below.
 
 ## Experimental binary additions

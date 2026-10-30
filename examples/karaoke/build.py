@@ -54,23 +54,24 @@ def validate_cues(lines, cues):
             raise ValueError(f"Lyric line {number}: {words} segments, {contacts} cues ({lines[number-1]})")
 
 
-def generate_lyrics(source, output):
+def generate_lyrics(source, output, prefix=None):
     metadata, lines = read_lyrics(source)
     if not lines:
         raise ValueError("Lyrics must contain at least one nonblank line")
     for line in lines:
-        if len(line.replace('_', '')) > 38 or any(ord(char) < 32 or ord(char) > 126 for char in line):
-            raise ValueError("Lyrics must fit 38 columns and use the SGDK ASCII font")
+        if len(line.replace('_', '')) > 40 or any(ord(char) < 32 or ord(char) > 126 for char in line):
+            raise ValueError("Lyrics must fit 40 columns and use the SGDK ASCII font")
         if len(line) > 65535:
             raise ValueError("Lyric source offsets must fit 16 bits")
         if not re.search(r"[^ _-]+", line):
             raise ValueError("Each lyric line must contain a word")
     text = "/* Generated from the lyric text; edit the .txt, then rebuild. */\n"
-    text += "#define KARAOKE_TITLE " + json.dumps(metadata["TITLE"]) + "\n"
-    text += "#define KARAOKE_ARTIST " + json.dumps(metadata["ARTIST"]) + "\n"
-    text += "static const char *const lyrics[] = {\n"
+    name = prefix or ""
+    text += f"#define {name}KARAOKE_TITLE " + json.dumps(metadata["TITLE"]) + "\n"
+    text += f"#define {name}KARAOKE_ARTIST " + json.dumps(metadata["ARTIST"]) + "\n"
+    text += f"static const char *const {name}lyrics[] = {{\n"
     text += "".join("    " + json.dumps(line) + ",\n" for line in lines)
-    text += "};\n#define LYRIC_COUNT (sizeof(lyrics) / sizeof(lyrics[0]))\n"
+    text += f"}};\n#define {name}LYRIC_COUNT (sizeof({name}lyrics) / sizeof({name}lyrics[0]))\n"
     write_generated(output, text)
 
 
@@ -99,11 +100,11 @@ def detect_breaks(cues, lead, rows_per_bar):
     return breaks
 
 
-def generate_timing(source, manifest, output, lyrics_source=None):
+def generate_timing(source, manifest, output, lyrics_source=None, song_index=0, prefix=None):
     """Validate the playback route and emit the game's visual timing table."""
     module = parse(source)
     bank = json.loads(manifest.read_text())
-    item = bank["songs"][0]
+    item = bank["songs"][song_index]
     sub = item.get("subsong", 0)
     song = module.subsongs[sub]
     channels = [voice["channel"] for voice in item["voices"]]
@@ -145,21 +146,43 @@ def generate_timing(source, manifest, output, lyrics_source=None):
         validate_cues(read_lyrics(lyrics_source)[1], cues)
     breaks = detect_breaks(cues, lead, song.highlights[1])
     text += "/* Break intervals use original music ticks, before visual-clock scaling. */\n"
-    text += "typedef struct { u32 start, end; u16 bars, intro; } KaraokeBreak;\n"
+    if prefix is None:
+        text += "typedef struct { u32 start, end; u16 bars, intro; } KaraokeBreak;\n"
     text += f"#define KARAOKE_BREAK_COUNT {len(breaks)}\n"
     text += "static const KaraokeBreak karaokeBreaks[] = {\n"
     text += "".join(f"    {{{start}UL, {end}UL, {bars}, {int(intro)}}},\n" for start, end, bars, intro in breaks)
     if not breaks:
         text += "    {0, 0, 0, 0},\n"
     text += "};\n"
+    if prefix:
+        for old in ("KARAOKE_RATE5", "KARAOKE_LEAD_TICKS", "KARAOKE_CONTACT_COUNT", "KARAOKE_BREAK_COUNT", "karaokeBreaks"):
+            text = text.replace(old, prefix + old)
     write_generated(output, text)
 
 
+def generate_songs(manifest, directory):
+    """Generate matching presentation tables for every bank song."""
+    songs = json.loads(manifest.read_text())["songs"]
+    if not 1 <= len(songs) <= 8:
+        raise ValueError("The song menu supports 1..8 songs")
+    text = '/* Generated from bank.json and its song assets. */\n'
+    entries = []
+    for index, item in enumerate(songs):
+        source = manifest.parent / item["source"]
+        prefix = f"song{index}_"
+        generate_lyrics(source.with_suffix(".txt"), directory / f"song{index}_lyrics.h", prefix)
+        generate_timing(source, manifest, directory / f"song{index}_timing.h",
+                        source.with_suffix(".txt"), index, prefix)
+        text += f'#include "song{index}_lyrics.h"\n#include "song{index}_timing.h"\n'
+        entries.append("    {" + str(item["id"]) + ", " + ", ".join(prefix + name for name in
+            ("KARAOKE_TITLE", "KARAOKE_ARTIST", "lyrics", "LYRIC_COUNT", "KARAOKE_RATE5",
+             "KARAOKE_LEAD_TICKS", "KARAOKE_CONTACT_COUNT", "karaokeBreaks", "KARAOKE_BREAK_COUNT")) + "},\n")
+    text += "static const KaraokeSong songs[] = {\n" + "".join(entries) + "};\n"
+    text += "#define SONG_COUNT (sizeof(songs) / sizeof(songs[0]))\n"
+    write_generated(directory / "songs.h", text)
+
+
 if __name__ == "__main__":
-    # The ROM bank and generated lyrics must describe the same song.
     manifest = HERE / "bank.json"
-    source = HERE / json.loads(manifest.read_text())["songs"][0]["source"]
-    lyrics_source = source.with_suffix(".txt")
-    generate_lyrics(lyrics_source, HERE / "inc/lyrics.h")
-    generate_timing(source, manifest, HERE / "inc/timing.h", lyrics_source)
+    generate_songs(manifest, HERE / "inc")
     build_rom(HERE, manifest)
