@@ -1,6 +1,9 @@
 ifeq ($(strip $(.DEFAULT_GOAL)),)
 .DEFAULT_GOAL := all
 endif
+# SGDK supplies its compilation rules. Built-in searches make large depfiles slow.
+.SUFFIXES:
+MAKEFLAGS += -r
 # Include instead of SGDK makefile.gen, before make/calliope.mk.
 ifndef CALLIOPE_HOME
 CALLIOPE_HOME := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/..)

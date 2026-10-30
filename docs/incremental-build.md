@@ -12,6 +12,7 @@ include $(CALLIOPE_HOME)/make/calliope.mk
 The SGDK wrapper replaces a direct include of `$(GDK)/makefile.gen`. It creates
 a private adapted copy under the build directory; it never changes the installed
 SDK. It preserves SGDK compilation flags, retains the linker response file,
+clears built-in suffix rules and propagates `-r` to reduce dependency-check time,
 tracks rescomp inputs through persistent assembly and depfiles, and pads only
 after linking. Resource depfiles are remade before C dependency decisions so
 new resource headers are visible in the same build. Unsupported SGDK padding

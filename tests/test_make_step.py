@@ -45,7 +45,7 @@ one.txt two.txt: | step.stamp
     def tearDown(self):self.temporary.cleanup()
 
     def make(self, success=True):
-        result = subprocess.run([str(MAKE), '-j4'], cwd=self.root, capture_output=True, text=True, timeout=30)
+        result = subprocess.run([str(MAKE), '-r', '-j4'], cwd=self.root, capture_output=True, text=True, timeout=30)
         if success:self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
         else:self.assertNotEqual(result.returncode, 0)
         time.sleep(1.1)  # GNU Make 3.81 compares whole-second timestamps.
