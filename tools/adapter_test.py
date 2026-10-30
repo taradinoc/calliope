@@ -5,12 +5,13 @@ import argparse,os,sys
 import subprocess
 ROOT=Path(__file__).resolve().parents[1]
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--vcvars',type=Path);p.add_argument('--hybrid',action='store_true');g=p.add_mutually_exclusive_group();g.add_argument('--host-pcm',action='store_true');g.add_argument('--z80-pcm',action='store_true');a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--vcvars',type=Path);p.add_argument('--hybrid',action='store_true');p.add_argument('--sfx-status',action='store_true',help='Run focused hybrid SFX ownership/completion checks');g=p.add_mutually_exclusive_group();g.add_argument('--host-pcm',action='store_true');g.add_argument('--z80-pcm',action='store_true');a=p.parse_args()
+    if a.sfx_status and not a.hybrid:p.error('--sfx-status requires --hybrid')
     if (a.z80_pcm or a.host_pcm) and not a.hybrid:p.error('PCM selection requires --hybrid')
-    if a.hybrid:
+    if a.hybrid and not a.sfx_status:
         subprocess.run([sys.executable,str(ROOT/'tools/clpconvert.py'),'compile',str(ROOT/'examples/bank.json'),'--output',str(ROOT/'out/hybrid-test-bank.bin')],env=dict(os.environ,CALLIOPE_PCM_TIMER='1020'),check=True)
-    source='hybrid_test.c' if a.hybrid else 'adapter_test.c'
-    args=' "'+str(ROOT/'out/hybrid-test-bank.bin')+'"' if a.hybrid else ''
+    source='sfx_status_test.c' if a.sfx_status else ('hybrid_test.c' if a.hybrid else 'adapter_test.c')
+    args=' "'+str(ROOT/'out/hybrid-test-bank.bin')+'"' if a.hybrid and not a.sfx_status else ''
     out=ROOT/'out/adapter-test';out.mkdir(parents=True,exist_ok=True)
     vc=msvc_path(a.vcvars)
     if not vc.exists():raise RuntimeError('MSVC x86 build environment unavailable')

@@ -258,6 +258,35 @@ u16 clp_poll(ClpEvent *events, u16 capacity)
     }
     return n;
 }
+/* Private driver layouts stay inside Calliope, not in consumers. */
+#ifndef CALLIOPE_SFX_STATE
+#define CALLIOPE_SFX_STATE ((vu8 *)0xA01800)
+#endif
+#ifndef CALLIOPE_PCM_STATE
+#define CALLIOPE_PCM_STATE ((vu8 *)0xA01EA0)
+#endif
+bool clp_sfxActive(u16 token)
+{
+    bool taken, active;
+    u16 i;
+    if (!bankData) return FALSE;
+    SYS_disableInts();
+    taken = Z80_getAndRequestBus(TRUE);
+    active = M[1] != M[2];
+    for (i = 0; !active && i < 4; i++)
+    {
+        vu8 *context = CALLIOPE_SFX_STATE + i * 16;
+        if (context[0] && context[4] == (u8)token && context[5] == (u8)(token >> 8))
+            active = TRUE;
+    }
+    if (!active && CALLIOPE_PCM_STATE[32] && CALLIOPE_PCM_STATE[12] &&
+        CALLIOPE_PCM_STATE[14] == (u8)token && CALLIOPE_PCM_STATE[15] == (u8)(token >> 8))
+        active = TRUE;
+    if (!taken) Z80_releaseBus();
+    SYS_enableInts();
+    return active;
+}
+
 ClpStatus clp_status(void)
 {
     ClpStatus s;

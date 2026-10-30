@@ -56,6 +56,11 @@ bool clp_setMusicPcmPriority(u8 priority);
 bool clp_pauseMusic(void);
 bool clp_resumeMusic(void);
 bool clp_stopSfx(u16 token);
+/* True while this SFX token owns a sequencer or PCM source. Pending commands
+   conservatively report busy so a queued start cannot look finished. Hybrid
+   queries its preparation frontier; subsequent starts are ordered after that
+   prepared audio, including the final SFX page. False before initialization. */
+bool clp_sfxActive(u16 token);
 /* Return means queued. Arbitration may reject equal/lower-priority requests. */
 bool clp_playSfx(u16 effect, u8 priority, u16 token);
 /* Logical source 0 is music, 1 is PCM SFX. Music uses the configured PCM

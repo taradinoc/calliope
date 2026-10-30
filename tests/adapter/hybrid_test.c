@@ -469,6 +469,18 @@ static void resident_patch_limits(void)
     bank[8] = 64; assert(!patchTableValid(bank, 32 + 64 * 32));
     assert(0x800 + CLH_PATCH_LIMIT * 32 <= 0xff8);
 }
+static void sfx_active_query(void)
+{
+    reset();commandW=commandR=0;
+    assert(!clp_sfxActive(0x4001));
+    effects[0].active=1;effects[0].token=0x4001;
+    assert(clp_sfxActive(0x4001) && !clp_sfxActive(0x4002));
+    effects[0].active=0;assert(!clp_sfxActive(0x4001));
+    commandW=1;assert(clp_sfxActive(0x4001));commandR=1;
+    pcmOwner=2;pcmToken=0x4001;timeline=20;pcmEnd=21;
+    assert(clp_sfxActive(0x4001));timeline=21;assert(!clp_sfxActive(0x4001));
+    bankData=0;assert(!clp_sfxActive(0x4001));
+}
 int main(int argc,char **argv)
 {
     resident_patch_limits();
@@ -476,5 +488,6 @@ int main(int argc,char **argv)
     tempo_api_tests();
     start_generation_tests();
     effect_index_tests();
+    sfx_active_query();
     assert(!owned && !disabled);puts("hybrid sequencing, ownership, PCM, events and authored-bank checks passed");return 0;
 }

@@ -2,7 +2,9 @@
 #include <stdio.h>
 #include <string.h>
 #include "genesis.h"
-static vu8 mailbox[384];
+static vu8 mailbox[384], sfxState[64], pcmState[33];
+#define CALLIOPE_SFX_STATE sfxState
+#define CALLIOPE_PCM_STATE pcmState
 #define CALLIOPE_MAILBOX mailbox
 #include "../../src/calliope.c"
 const u8 clp_driver[8192]={0};
@@ -29,6 +31,7 @@ static void event(u8 counter,u16 gen,u16 id) {
 #include "start_generation_test.h"
 int main(void) {
     ClpEvent result[5]; ClpStatus status; int before;
+    assert(!clp_sfxActive(0x4001));
     assert(!clp_setMusicPcmPriority(2));
     assert(clp_getElapsed()==0);
     request=0x1234; memset(result,0xaa,sizeof(result));
@@ -93,6 +96,18 @@ int main(void) {
         invalid[43]=128;assert(!clp_start(1) && !mailbox[1]);
         invalid[43]=17;assert(!clp_start(1) && !mailbox[1]);
     }
+    mailbox[1]=mailbox[2]=0;bankData=clp_driver;
+    memset((void *)sfxState,0,sizeof(sfxState));memset((void *)pcmState,0,sizeof(pcmState));
+    assert(!clp_sfxActive(0x4001));
+    for (unsigned i=0;i<4;i++) {
+        unsigned p=i*16;sfxState[p]=1;sfxState[p+4]=1;sfxState[p+5]=0x40;
+        assert(clp_sfxActive(0x4001) && !clp_sfxActive(0x4002));
+        sfxState[p]=0;assert(!clp_sfxActive(0x4001));
+    }
+    mailbox[1]=1;assert(clp_sfxActive(0x4001));mailbox[2]=1;
+    pcmState[32]=1;pcmState[12]=2;pcmState[14]=1;pcmState[15]=0x40;
+    assert(clp_sfxActive(0x4001));pcmState[32]=0;assert(!clp_sfxActive(0x4001));
+    owned=true;before=releases;assert(!clp_sfxActive(0x4001) && owned && releases==before);owned=false;
     tempo_api_tests();
     start_generation_tests();
     effect_index_tests();

@@ -45,3 +45,20 @@ are not implemented; supported modulation is compiled into timed updates.
 The Make integration now offers direct Python bank preparation, enabled with
 `CALLIOPE_BANK`; the configuration-only/rescomp route remains available. See
 [integration and migration](integration.md) before changing an existing project.
+
+## SFX token completion query
+
+`clp_sfxActive(token)` checks sequencer and PCM ownership without stopping the
+sound. Pending commands conservatively return busy, so a queued start cannot
+appear finished. It returns false before initialization. The Z80 adapter reads
+the owner contexts under a bounded bus lock. Hybrid reports its preparation
+frontier; a subsequent music start is prepared after the final SFX page and
+plays behind that page. No driver or bank ABI changes are required.
+
+The adapter host tests cover token matching, queued commands, PCM ownership,
+and bus ownership. `tests/adapter/sfx_status_test.c` is a focused hybrid target
+using the same fixtures. Run
+`python tools/adapter_test.py --hybrid --sfx-status --z80-pcm` and repeat
+with `--host-pcm`. The existing full
+hybrid authored-bank golden trace assertion also fails on the pristine current
+Mercurial baseline; the token-query change does not update those golden hashes.

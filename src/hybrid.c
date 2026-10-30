@@ -1853,6 +1853,16 @@ static CLH_NOINLINE void statusC(volatile u8 *raw)
 #endif
 }
 #endif
+bool clp_sfxActive(u16 token)
+{
+    u8 i;
+    if (!bankData) return FALSE;
+    if (commandW != commandR) return TRUE;
+    for (i = 0; i < 4; i++)
+        if (effects[i].active && effects[i].token == token) return TRUE;
+    return pcmOwner == 2 && pcmToken == token && timeline < pcmEnd;
+}
+
 ClpStatus clp_status(void)
 {
     volatile u8 raw[14];
