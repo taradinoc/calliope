@@ -10,7 +10,7 @@ import base64
 import sys
 from ..compiler import compile_bank, infer_sfx, used_channels, validate_manifest
 from ..furnace import FormatError, parse
-from ..pcm import convert, decode
+from ..pcm import convert, conversion_cache, decode
 
 ERRORS = (
     FormatError,
@@ -268,9 +268,10 @@ def cached_compile(document, base_dir, region, mode, cache_dir=None, progress=No
                 return data, value["report"], value["header"], True
         except (OSError, ValueError, KeyError, TypeError):
             pass
-    data, report, header = compile_document(
-        document, base_dir, region, mode, progress=progress
-    )
+    with conversion_cache(Path(cache_dir) / "pcm" if cache_dir else None):
+        data, report, header = compile_document(
+            document, base_dir, region, mode, progress=progress
+        )
     if fingerprint(document, base_dir, region, mode) != key:
         raise FormatError("Inputs changed during conversion; retry")
     if cache:

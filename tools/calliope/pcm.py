@@ -1,6 +1,12 @@
 """Deterministic integer-PCM WAV decoding and windowed-sinc resampling."""
 
 from pathlib import Path
+from array import array
+from contextlib import contextmanager
+from contextvars import ContextVar
+import base64
+import hashlib
+import json
 import math
 import os
 import struct
@@ -12,6 +18,17 @@ if TIMER_A not in (1016, 1017, 1018, 1019, 1020):
     raise ValueError("unsupported CALLIOPE_PCM_TIMER")
 DAC_CLOCKS = 144 * (1024 - TIMER_A)
 RATES = {"ntsc": 53693175 / 7 / DAC_CLOCKS, "pal": 53203424 / 7 / DAC_CLOCKS}
+_conversion_cache = ContextVar("pcm_conversion_cache", default=None)
+
+
+@contextmanager
+def conversion_cache(directory):
+    """Reuse PCM across editor bank edits without changing compiler output."""
+    token = _conversion_cache.set(Path(directory) if directory else None)
+    try:
+        yield
+    finally:
+        _conversion_cache.reset(token)
 
 
 def decode(path):
@@ -67,6 +84,45 @@ def convert(path, region="ntsc", gain=1.0, loop=None, *, pcm_timer=None):
 
 
 def resample(src, rate, info, region="ntsc", gain=1.0, loop=None, *, pcm_timer=None):
+    directory = _conversion_cache.get()
+    if directory is None:
+        return _resample(src, rate, info, region, gain, loop, pcm_timer=pcm_timer)
+    # Key the decoded samples, pitch, gain, loop and hardware clock separately
+    # from the bank. Changing one entry can then reuse every unaffected sample.
+    timer = TIMER_A if pcm_timer is None else pcm_timer
+    digest = hashlib.sha256(Path(__file__).read_bytes())
+    digest.update(array("d", src).tobytes())
+    digest.update(json.dumps([rate, region, gain, loop, timer]).encode())
+    key = digest.hexdigest()
+    path = directory / (key + ".json")
+    fields = ("rate", "bytes", "loop", "gain", "clipped_samples")
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        data = base64.b64decode(value["data"], validate=True)
+        details = value["info"]
+        if (value["key"] == key and len(data) == details["bytes"]
+                and hashlib.sha256(data).hexdigest() == value["sha256"]
+                and set(details) == set(fields)):
+            info.update(details)
+            return data, info
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    data, info = _resample(src, rate, info, region, gain, loop, pcm_timer=timer)
+    from clpconvert import atomic
+
+    # Cache failures must not prevent previewing an otherwise valid bank.
+    try:
+        atomic(path, json.dumps(dict(
+            key=key, data=base64.b64encode(data).decode(),
+            sha256=hashlib.sha256(data).hexdigest(),
+            info={field: info[field] for field in fields},
+        )).encode())
+    except OSError:
+        pass
+    return data, info
+
+
+def _resample(src, rate, info, region="ntsc", gain=1.0, loop=None, *, pcm_timer=None):
     if region not in RATES or not math.isfinite(gain) or gain < 0:
         raise FormatError("invalid PCM region/gain")
     if not src or not math.isfinite(rate) or rate <= 0:
