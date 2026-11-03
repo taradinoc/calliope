@@ -1,3 +1,2 @@
-- Default channel steal order should be descending, not ascending
-- Remove "held notes" feature
-- clp_start should bump the generation automatically
+- Bank channel mapping should be omitted by default and generated implicitly
+    - Most songs will have a simple, obvious mapping

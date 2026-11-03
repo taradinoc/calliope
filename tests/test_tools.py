@@ -39,7 +39,7 @@ class Fixture(unittest.TestCase):
     def test_song_fm_steal_order(self):
         data,_,_=compile_bank(self.manifest())
         player=Player(data);player.start(4)
-        self.assertEqual(player.fm_steal_order,[0,1,2,3,4])
+        self.assertEqual(player.fm_steal_order,[4,3,2,1,0])
         order=['fm4','fm2','fm0','fm3','fm1']
         data,_,_=compile_bank(self.manifest(fm_steal_order=order))
         player=Player(data);player.start(4)
@@ -53,7 +53,7 @@ class Fixture(unittest.TestCase):
         m['songs'].append(second);manifest.write_text(json.dumps(m))
         data,_,_=compile_bank(manifest);player=Player(data)
         player.start(4);self.assertEqual(player.fm_steal_order,[4,2,0,3,1])
-        player.start(5);self.assertEqual(player.fm_steal_order,[0,1,2,3,4])
+        player.start(5);self.assertEqual(player.fm_steal_order,[4,3,2,1,0])
         m['sfx']=[dict(second,id=6,name='effect',fm_steal_order=order)]
         manifest.write_text(json.dumps(m))
         with self.assertRaisesRegex(FormatError,'fm_steal_order'):compile_bank(manifest)
@@ -61,7 +61,7 @@ class Fixture(unittest.TestCase):
     def test_song_psg_steal_order(self):
         data,_,_=compile_bank(self.manifest())
         player=Player(data);player.start(4)
-        self.assertEqual(player.psg_steal_order,[0,1,2])
+        self.assertEqual(player.psg_steal_order,[2,1,0])
         order=['tone2','tone0','tone1']
         data,_,_=compile_bank(self.manifest(psg_steal_order=order,fm_steal_order=['fm4','fm3','fm2','fm1','fm0']))
         player=Player(data);player.start(4)
@@ -75,7 +75,7 @@ class Fixture(unittest.TestCase):
         m['songs'].append(second);manifest.write_text(json.dumps(m))
         data,_,_=compile_bank(manifest);player=Player(data)
         player.start(4);self.assertEqual(player.psg_steal_order,[2,0,1])
-        player.start(5);self.assertEqual(player.psg_steal_order,[0,1,2])
+        player.start(5);self.assertEqual(player.psg_steal_order,[2,1,0])
         m['sfx']=[dict(second,id=6,name='effect',psg_steal_order=order)]
         manifest.write_text(json.dumps(m))
         with self.assertRaisesRegex(FormatError,'psg_steal_order'):compile_bank(manifest)

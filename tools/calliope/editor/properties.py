@@ -820,8 +820,8 @@ class Properties(QWidget):
             "Channel stealing order: effects prefer unused eligible channels, then steal music in the order below. Move the least important music channels to the top.",
         )
         for key, title, defaults in [
-            ("fm_steal_order", "FM channels", [f"fm{i}" for i in range(5)]),
-            ("psg_steal_order", "PSG tone channels", [f"tone{i}" for i in range(3)]),
+            ("fm_steal_order", "FM channels", [f"fm{i}" for i in reversed(range(5))]),
+            ("psg_steal_order", "PSG tone channels", [f"tone{i}" for i in reversed(range(3))]),
         ]:
             group = QGroupBox(title)
             gl = QVBoxLayout(group)

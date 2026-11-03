@@ -110,8 +110,8 @@ def main():
             commands([(3,0,0)])
             # Start the second descriptor with its default order: no stale ranks.
             commands([(1,2,song+24-base)])
-            assert ram()[0x1f6b:0x1f70]==bytes(range(5)),'song switch must load order'
-            assert ram()[0x1f70:0x1f73]==bytes(range(3)),'song switch must load PSG order'
+            assert ram()[0x1f6b:0x1f70]==bytes(reversed(range(5))),'song switch must load order'
+            assert ram()[0x1f70:0x1f73]==bytes(reversed(range(3))),'song switch must load PSG order'
             assert ram()[0x1d05]==0,'custom-order allocation fault'
             assert ram()[0x1738:0x1740]==bytes([0xa5]*8) and ram()[0x1f78:0x1f80]==bytes([0xa5]*8),'stack guard'
         finally:h.close()

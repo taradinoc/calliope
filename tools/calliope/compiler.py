@@ -1780,8 +1780,8 @@ def compile_bank(
                     raise FormatError(
                         "loop must preserve groove phase/tempo or reset it explicitly at entry"
                     )
-            steal_order = item.get("fm_steal_order", [f"fm{i}" for i in range(5)])
-            psg_order = item.get("psg_steal_order", [f"tone{i}" for i in range(3)])
+            steal_order = item.get("fm_steal_order", [f"fm{i}" for i in reversed(range(5))])
+            psg_order = item.get("psg_steal_order", [f"tone{i}" for i in reversed(range(3))])
             steal_ranks = bytes(steal_order.index(f"fm{i}") for i in range(5)) + bytes(
                 psg_order.index(f"tone{i}") for i in range(3)
             )
