@@ -15,6 +15,7 @@ if local.is_dir():sys.path.insert(0,str(local))
 def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--dry-run',action='store_true');parser.add_argument('--name',default='Calliope Bank Editor');a=parser.parse_args()
     import PySide6
+    import numpy
     from calliope.editor.preview import core_path
     core_path(ROOT/'editor/assets')  # Fail before packaging an incomplete release.
     for profile in ('z80-ntsc','z80-pal','hybrid-ntsc','hybrid-pal'):
@@ -34,6 +35,14 @@ def main():
     for info in Path(PySide6.__file__).parent.parent.glob('*.dist-info'):
         if info.name.lower().startswith(('pyside6','shiboken6')) and (info/'licenses').is_dir():
             shutil.copytree(info/'licenses',stage/'assets/qt-licenses'/info.name,dirs_exist_ok=True)
+    for info in Path(numpy.__file__).parent.parent.glob('numpy-*.dist-info'):
+        if (info/'licenses').is_dir():
+            shutil.copytree(info/'licenses',stage/'assets/numpy-licenses'/info.name,dirs_exist_ok=True)
+        for notice in info.glob('LICENSE*'):
+            if notice.is_file():
+                target=stage/'assets/numpy-licenses'/info.name
+                target.mkdir(parents=True,exist_ok=True)
+                shutil.copyfile(notice,target/notice.name)
     deploy=Path(PySide6.__file__).parent/'scripts'
     config=configparser.ConfigParser();config.read(deploy/'deploy_lib/default.spec')
     config['app'].update(title=a.name,project_dir=str(stage),input_file=str(stage/'calliope_editor.py'),exec_directory=str(ROOT/'out/editor-release'))
@@ -42,11 +51,11 @@ def main():
     # runtime. Native translation changed the generated FM command streams in
     # the previous release; bank-byte parity is a release gate below.
     converter_modules=[p.stem for p in (ROOT/'tools/calliope').glob('*.py') if p.stem!='__init__']
-    args=['--include-package=calliope.editor','--include-module=clpconvert',
+    args=['--include-package=calliope.editor','--include-package=numpy','--include-module=clpconvert',
           '--nofollow-import-to='+','.join('calliope.'+name for name in converter_modules),
           '--include-data-dir='+str(stage/'assets').replace('\\','/')+'=assets','--assume-yes-for-downloads','--noinclude-qt-translations',
           '--no-deployment-flag=excluded-module-usage']
-    args+=['--include-module='+name for name in ('math','wave','zlib','dataclasses','bisect')]
+    args+=['--include-module='+name for name in ('math','wave','zlib','dataclasses','bisect','array','contextvars')]
     if sys.platform=='win32':args+=['--windows-console-mode=attach','--msvc=latest']
     config['nuitka'].update(mode='standalone',extra_args=' '.join('"'+arg+'"' if ' ' in arg else arg for arg in args))
     spec=stage/'pysidedeploy.spec'

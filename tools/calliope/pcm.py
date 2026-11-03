@@ -10,6 +10,7 @@ import json
 import math
 import os
 import struct
+import sys
 import wave
 from .furnace import FormatError
 
@@ -55,17 +56,28 @@ def decode(path):
         raise FormatError(str(e)) from e
     if len(raw) != count * width * channels or not count:
         raise FormatError("empty/truncated WAV")
-    samples = []
-    for i in range(0, len(raw), width * channels):
-        values = []
-        for c in range(channels):
-            b = raw[i + c * width : i + (c + 1) * width]
-            values.append(
-                (b[0] - 128) / 128
-                if width == 1
-                else int.from_bytes(b, "little", signed=True) / (1 << (width * 8 - 1))
-            )
-        samples.append(sum(values) / channels)
+    if width in (1, 2, 4):
+        values = array({1: "B", 2: "h", 4: "i"}[width])
+        values.frombytes(raw)
+        if sys.byteorder != "little" and width > 1:
+            values.byteswap()
+        offset = 128 if width == 1 else 0
+        scale = 1 << (width * 8 - 1)
+        if channels == 1:
+            samples = [(value - offset) / scale for value in values]
+        else:
+            samples = [
+                (left + right - 2 * offset) / (2 * scale)
+                for left, right in zip(values[::2], values[1::2])
+            ]
+    else:
+        samples = []
+        for i in range(0, len(raw), width * channels):
+            values = [
+                int.from_bytes(raw[j:j + width], "little", signed=True) / (1 << 23)
+                for j in range(i, i + width * channels, width)
+            ]
+            samples.append(sum(values) / channels)
     return (
         samples,
         rate,
@@ -91,6 +103,9 @@ def resample(src, rate, info, region="ntsc", gain=1.0, loop=None, *, pcm_timer=N
     # from the bank. Changing one entry can then reuse every unaffected sample.
     timer = TIMER_A if pcm_timer is None else pcm_timer
     digest = hashlib.sha256(Path(__file__).read_bytes())
+    accelerator = Path(__file__).with_name("pcm_numpy.py")
+    if accelerator.is_file():
+        digest.update(accelerator.read_bytes())
     digest.update(array("d", src).tobytes())
     digest.update(json.dumps([rate, region, gain, loop, timer]).encode())
     key = digest.hexdigest()
@@ -135,25 +150,11 @@ def _resample(src, rate, info, region="ntsc", gain=1.0, loop=None, *, pcm_timer=
     count = max(1, round(len(src) / ratio))
     cutoff = min(1.0, target / rate) * 0.94
     radius = 24 / max(cutoff, 0.01)
-    output = bytearray()
-    clipped = 0
-    for i in range(count):
-        pos = i * ratio
-        lo = max(0, math.ceil(pos - radius))
-        hi = min(len(src), math.floor(pos + radius) + 1)
-        total = norm = 0.0
-        for j in range(lo, hi):
-            x = (pos - j) * cutoff
-            sinc = 1 if abs(x) < 1e-12 else math.sin(math.pi * x) / (math.pi * x)
-            window = 0.5 + 0.5 * math.cos(math.pi * (pos - j) / radius)
-            weight = sinc * window
-            total += src[j] * weight
-            norm += weight
-        value = round((total / norm if norm else 0) * gain * 128)
-        if value < -128 or value > 127:
-            clipped += 1
-        value = max(-128, min(127, value))
-        output.append(value & 255)
+    try:
+        from .pcm_numpy import encode
+    except ImportError:
+        encode = _encode_scalar
+    output, clipped = encode(src, ratio, count, cutoff, radius, gain)
     bounds = None
     if loop is not None:
         if (
@@ -169,3 +170,30 @@ def _resample(src, rate, info, region="ntsc", gain=1.0, loop=None, *, pcm_timer=
         rate=target, bytes=len(output), loop=bounds, gain=gain, clipped_samples=clipped
     )
     return bytes(output), info
+
+
+def _sample(src, pos, cutoff, radius, gain):
+    """Reference tap order and rounding, also used for ambiguous fast-path ties."""
+    lo = max(0, math.ceil(pos - radius))
+    hi = min(len(src), math.floor(pos + radius) + 1)
+    total = norm = 0.0
+    for j in range(lo, hi):
+        x = (pos - j) * cutoff
+        sinc = 1 if abs(x) < 1e-12 else math.sin(math.pi * x) / (math.pi * x)
+        window = 0.5 + 0.5 * math.cos(math.pi * (pos - j) / radius)
+        weight = sinc * window
+        total += src[j] * weight
+        norm += weight
+    return round((total / norm if norm else 0) * gain * 128)
+
+
+def _encode_scalar(src, ratio, count, cutoff, radius, gain):
+    output = bytearray()
+    clipped = 0
+    for i in range(count):
+        value = _sample(src, i * ratio, cutoff, radius, gain)
+        if value < -128 or value > 127:
+            clipped += 1
+        value = max(-128, min(127, value))
+        output.append(value & 255)
+    return bytes(output), clipped

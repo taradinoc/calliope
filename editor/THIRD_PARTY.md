@@ -35,3 +35,7 @@ publishing a release.
 
 The editor preview host is independent of `tools/libretro_host.py`; that test
 harness is not included in the standalone application.
+
+The editor uses NumPy to accelerate PCM conversion. Standalone packages include
+the installed NumPy wheel's license notices in `assets/numpy-licenses`, including
+the notices for its bundled dependencies.

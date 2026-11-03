@@ -26,15 +26,16 @@ def main():
         )
         if PathFinder not in sys.meta_path:
             sys.meta_path.append(PathFinder)
+    # Workers need the same optional PCM accelerator as the GUI when source
+    # dependencies were installed into the project-local directory.
+    local = Path(__file__).resolve().parents[1] / "out/editor-deps"
+    if local.is_dir():
+        sys.path.insert(0, str(local))
     if "--worker" in sys.argv:
         from calliope.editor.worker import run
 
         run()
         return
-    # A checkout can use project-local dependencies without installing globally.
-    local = Path(__file__).resolve().parents[1] / "out/editor-deps"
-    if local.is_dir():
-        sys.path.insert(0, str(local))
     try:
         from PySide6.QtWidgets import QApplication
     except ImportError as e:

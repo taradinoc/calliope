@@ -373,6 +373,8 @@ class Level:
         self.instrument = None
         self.instrument_id = None
         self.operator_levels = [None] * 4
+        self.patch_input = None
+        self.patch_levels = None
 
     def begin(self, cell, instrument, fresh):
         from .macros import sequences, Cursor
@@ -425,15 +427,19 @@ class Level:
             if self.modern
             else (self.volume * self.macro + (126 if self.ceil else 0)) // 127
         )
-        patch = fm_patch(
-            self.instrument,
-            volume,
-            self.modern,
-            self.ceil,
-            self.attenuation,
-            self.operator_levels,
+        key = (
+            self.instrument["kind"], tuple(self.instrument["features"].items()),
+            volume, self.modern, self.ceil, self.attenuation,
+            tuple(self.operator_levels),
         )
-        result = patch[4:8] + patch[31:32]
+        if key != self.patch_input:
+            patch = fm_patch(
+                self.instrument, volume, self.modern, self.ceil,
+                self.attenuation, self.operator_levels,
+            )
+            self.patch_input = key
+            self.patch_levels = patch[4:8] + patch[31:32]
+        result = self.patch_levels
         if result == self.last:
             return None
         self.last = result

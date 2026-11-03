@@ -56,6 +56,10 @@ Cancel stops preparation without changing the source bank. Preview/export perfor
 one conversion pass and cache successful banks by input content and profile.
 The first conversion of a large bank can still take time; subsequent starts reuse
 the cached bank until inputs, compiler implementation, or profile change.
+PCM conversions are cached separately by decoded samples, pitch, gain, loop,
+and regional driver clock. Bank edits can reuse unaffected PCM conversions.
+NumPy accelerates cache misses with the same windowed-sinc filter and PCM
+rounding; the command-line converter retains a slower fallback without NumPy.
 Export writes a binary bank, JSON report, dependency list, and C IDs header.
 Output paths cannot overwrite the open manifest or source resources. Each output
 is replaced atomically; the four outputs are not one filesystem transaction.
