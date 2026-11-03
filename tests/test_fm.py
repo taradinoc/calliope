@@ -90,7 +90,7 @@ class FMPitch(unittest.TestCase):
         module.patterns={key:value for key,value in module.patterns.items() if key[1]<5}
         with tempfile.TemporaryDirectory() as tmp:
             manifest=Path(tmp)/'bank.json'
-            manifest.write_text(json.dumps({'version':1,'songs':[{'id':2,'name':'ghz_fm','source':str(source),'external_commands':'passthrough','voices':[{'channel':i,'slot':'fm'+str(i)} for i in range(5)]}]}))
+            manifest.write_text(json.dumps({'version':1,'songs':[{'id':2,'name':'ghz_fm','source':str(source),'voices':[{'channel':i,'slot':'fm'+str(i)} for i in range(5)]}]}))
             with patch_module('calliope.compiler.parse',return_value=module):
                 data,report,_=compile_bank(manifest)
         self.assertEqual(len(report['rows']),1824)

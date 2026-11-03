@@ -113,12 +113,12 @@ class Properties(QWidget):
             self.numeric(
                 form,
                 "marker_advance_ticks",
-                "Marker lookahead (ticks)",
+                "Event advance (ticks)",
                 0,
                 65535,
                 0,
                 optional=True,
-                tip="Send marker events this many music ticks early. Songs can override this bank default.",
+                tip="Send EExx game notifications this many music ticks early. Boundary synchronization stays at the authored row. Songs can override this bank default.",
             )
             return
         self.text(
@@ -241,7 +241,6 @@ class Properties(QWidget):
         if category == "songs":
             self.voice_page()
             self.membership_page()
-            self.cues_page()
             self.song_playback()
         else:
             self.effect_playback(wav)
@@ -694,117 +693,9 @@ class Properties(QWidget):
             self.value[key] = {n: mapping[n] for n in names}
             self.publish(True)
 
-    def cues_page(self):
-        layout = self.page("Markers && events")
-        self.hint(
-            layout,
-            "Markers define arrangement-switch boundaries. Events translate Furnace external commands into IDs and parameters for your game. Order and row positions start at zero.",
-        )
-        markers = self.value.get("markers", [])
-        markers = markers if isinstance(markers, list) else []
-        table = self.table(layout, ["Order", "Row", "Marker ID"], len(markers))
-        for r, marker in enumerate(markers):
-            for c, key in enumerate(("order", "row", "id")):
-                self.cell_spin(
-                    table,
-                    r,
-                    c,
-                    marker.get(key, 0),
-                    65535,
-                    lambda v, r=r, k=key: self.marker_field(r, k, v),
-                )
-        self.buttons(
-            layout,
-            [
-                ("Add marker", self.add_marker),
-                (
-                    "Remove marker",
-                    lambda: self.remove_index("markers", table.currentRow()),
-                ),
-            ],
-        )
-        events = self.value.get("events", {})
-        events = events if isinstance(events, dict) else {}
-        event_table = self.table(
-            layout, ["Furnace command value", "Game event ID", "Parameter"], len(events)
-        )
-        for r, (command, event) in enumerate(events.items()):
-            try:
-                value = int(command)
-            except (ValueError, TypeError):
-                value = 0
-            self.cell_spin(
-                event_table, r, 0, value, 255, lambda v, n=command: self.event_key(n, v)
-            )
-            for c, key in enumerate(("id", "parameter"), 1):
-                self.cell_spin(
-                    event_table,
-                    r,
-                    c,
-                    event.get(key, 0),
-                    65535,
-                    lambda v, n=command, k=key: self.event_field(n, k, v),
-                )
-        self.buttons(
-            layout,
-            [
-                ("Add event mapping", self.add_event),
-                ("Remove mapping", lambda: self.remove_event(event_table.currentRow())),
-            ],
-        )
-        form = QFormLayout()
-        layout.addLayout(form)
-        self.choice(
-            form,
-            "external_commands",
-            "Unmapped external commands",
-            [
-                ("Require an explicit mapping", None),
-                ("Pass through to the game", "passthrough"),
-            ],
-            None,
-        )
-
-    def marker_field(self, index, key, value):
-        self.value["markers"][index][key] = value
-        self.publish()
-
-    def add_marker(self):
-        self.value.setdefault("markers", []).append(dict(order=0, row=0, id=0))
-        self.publish(True)
-
-    def remove_index(self, key, index):
-        if index >= 0:
-            self.value[key].pop(index)
-            self.publish(True)
-
-    def event_field(self, name, key, value):
-        self.value["events"][name][key] = value
-        self.publish()
-
-    def event_key(self, name, value):
-        new = str(value)
-        mapping = self.value["events"]
-        if new != name and new not in mapping:
-            self.value["events"] = {
-                new if k == name else k: v for k, v in mapping.items()
-            }
-            self.publish(True)
-
-    def add_event(self):
-        events = self.value.setdefault("events", {})
-        key = next((str(i) for i in range(256) if str(i) not in events), None)
-        if key is not None:
-            events[key] = dict(id=int(key), parameter=0)
-            self.publish(True)
-
-    def remove_event(self, index):
-        if index >= 0:
-            del self.value["events"][list(self.value["events"])[index]]
-            self.publish(True)
-
     def song_playback(self):
         layout = self.page("Playback")
+        self.hint(layout, "Author synchronization cues as Furnace EExx effects. Every EExx sends event ID xx and the zero-based source channel as its parameter. Boundary requests match xx at its authored row; event advance moves notifications only.")
         form = QFormLayout()
         layout.addLayout(form)
         self.numeric(
@@ -831,11 +722,12 @@ class Properties(QWidget):
         self.numeric(
             form,
             "marker_advance_ticks",
-            "Marker lookahead (ticks)",
+            "Event advance (ticks)",
             0,
             65535,
             0,
             optional=True,
+            tip="Advance EExx game notifications only; boundaries stay at the authored row.",
         )
         self.choice(
             form,

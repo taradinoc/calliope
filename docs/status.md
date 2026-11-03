@@ -38,7 +38,7 @@ The release-preparation changes do not claim to close runtime timing gates.
 ## Compatibility
 
 Banks, converter and driver must be updated together. The current boundary API
-uses immediate, next-bar and explicit-marker requests. Older bank revisions and
+uses immediate, next-bar and EExx-effect requests. Older bank revisions and
 stale effect-index data are rejected. Runtime macros and arbitrary phrase calls
 are not implemented; supported modulation is compiled into timed updates.
 

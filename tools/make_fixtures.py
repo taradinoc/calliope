@@ -5,7 +5,7 @@ from pathlib import Path
 import struct
 import zlib
 
-def make(version=248,kind=0x83,notes=(108,112,115,120),event=True,extra_tracks=(),track_channels=None,initial_effects=None,hz=60,speeds=(6,)):
+def make(version=248,kind=0x83,notes=(108,112,115,120),event=True,extra_tracks=(),track_channels=None,initial_effects=None,hz=60,speeds=(6,),row_effects=None):
     data=bytearray(b'-Furnace module-'+struct.pack('<HHI',version,0,0)+bytes(8))
     def block(tag,body):
         offset=len(data); data.extend(tag+struct.pack('<I',len(body))+body); return offset
@@ -16,6 +16,7 @@ def make(version=248,kind=0x83,notes=(108,112,115,120),event=True,extra_tracks=(
     ins=block(b'INS2',struct.pack('<HH',version,1 if kind==0x83 else 0)+feature(b'NA',b'Fixture\0')+(feature(b'FM',fm) if kind==0x83 else b'')+b'EN')
     patterns=[]; channel_names=['']*channels
     initial_effects=initial_effects or {}
+    row_effects=row_effects or {}
     for channel,track in enumerate([(notes,'melody')]+list(extra_tracks)):
         channel=track_channels[channel] if track_channels is not None else channel
         track_notes,name=track
@@ -26,6 +27,7 @@ def make(version=248,kind=0x83,notes=(108,112,115,120),event=True,extra_tracks=(
             if i==0 and channel in initial_effects:stream.extend((0x1b,note,0,*initial_effects[channel]))
             elif i==0 and event and channel==0: stream.extend((0x1b,note,0,0xee,1))
             elif i==0: stream.extend((3,note,0))
+            elif (channel,i*5) in row_effects: stream.extend((0x19,note,*row_effects[channel,i*5]))
             else: stream.extend((1,note))
             stream.extend((0x80+2,))
         stream.extend((1,180,255))
@@ -42,6 +44,7 @@ def make(version=248,kind=0x83,notes=(108,112,115,120),event=True,extra_tracks=(
                             instrument=0
                             if channel in initial_effects:effect,value=initial_effects[channel]
                             elif event and channel==0:effect,value=0xee,1
+                        if (channel,row) in row_effects:effect,value=row_effects[channel,row]
                 body.extend(struct.pack('<6h',note,octave,instrument,volume,effect,value))
             patterns.append(block(b'PATR',body+name.encode()+b'\0'))
         else:
@@ -73,7 +76,7 @@ def main():
     import json,math,wave
     root=Path(__file__).resolve().parents[1]; target=root/'examples'; target.mkdir(exist_ok=True)
     for version in (232,248): (target/f'melody{version}.fur').write_bytes(make(version))
-    (target/'arrangements232.fur').write_bytes(make(232,extra_tracks=(((108,111,115,120),'sad'),((84,84,91,91),'bass'))))
+    (target/'arrangements232.fur').write_bytes(make(232,extra_tracks=(((108,111,115,120),'sad'),((84,84,91,91),'bass')),row_effects={(0,10):(0xee,2)}))
     (target/'noise232.fur').write_bytes(make(232,3,notes=(108,109,110),event=False,track_channels=(3,),initial_effects={3:(0x20,1)}))
     (target/'coupled232.fur').write_bytes(make(232,3,event=False,extra_tracks=(((108,112,115,120),'noise'),),track_channels=(2,3),initial_effects={3:(0x20,0x11)}))
     (target/'multi_psg232.fur').write_bytes(make(232,3,event=False,
@@ -85,6 +88,6 @@ def main():
     with wave.open(str(target/'click.wav'),'wb') as w:
         w.setnchannels(1); w.setsampwidth(2); w.setframerate(22050)
         w.writeframes(b''.join(struct.pack('<h',round(14000*math.sin(i*.13)*math.exp(-i/240))) for i in range(2205)))
-    manifest={'version':1,'songs':[{'id':1,'name':'melody','source':'melody232.fur','voices':[{'channel':'melody','slot':'fm0'}],'events':{'1':{'id':7,'parameter':42}}}],'sfx':[{'id':2,'name':'click','source':'click.wav','priority':1}]}
+    manifest={'version':1,'songs':[{'id':1,'name':'melody','source':'melody232.fur','voices':[{'channel':'melody','slot':'fm0'}]}],'sfx':[{'id':2,'name':'click','source':'click.wav','priority':1}]}
     if not (target/'bank.json').exists(): (target/'bank.json').write_text(json.dumps(manifest,indent=2)+'\n',newline='\r\n')
 if __name__=='__main__': main()

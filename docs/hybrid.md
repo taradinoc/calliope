@@ -17,7 +17,7 @@ The previous host PCM preparer remains available with `--hybrid --host-pcm`. Tha
 
 The build sets `CALLIOPE_PCM_TIMER=1020` before conversion and rescomp. Direct conversion uses the same environment variable; the default remains 1016. The cache key includes the timer. BGM1-12 stores the timer in little-endian header bytes 19-20 and region in byte 21 (0 NTSC, 1 PAL). The hybrid adapter rejects mismatches. The ordinary adapter requires revision 12 and a matching timer-1016 bank (zero is also accepted in the timer field). This optimization changes the private RAM transport, not the musical bank layout.
 
-Both hybrid modes now decode the same revision-12 conductor/channel pattern layout as the pure Z80 driver. Channel cursors and waits reside on the 68000. Immediate requests apply at control consumption; only major-highlight bar boundaries and explicit markers remain available. The measurements below predate this format change unless identified as revision 12.
+Both hybrid modes now decode the same revision-12 conductor/channel pattern layout as the pure Z80 driver. Channel cursors and waits reside on the 68000. Immediate requests apply at control consumption; only major-highlight bar boundaries and EExx boundaries remain available. The measurements below predate this format change unless identified as revision 12.
 
 ## Division of work
 

@@ -24,7 +24,7 @@ class Fixture(unittest.TestCase):
     def module(self,version=248,kind=0x83):
         p=self.root/'song.fur'; p.write_bytes(make(version,kind)); return p
     def manifest(self,**extra):
-        p=self.module(); song={'name':'test','id':4,'source':p.name,'voices':[{'channel':'melody','slot':'fm0'}],'events':{'1':{'id':123,'parameter':456}}}; song.update(extra)
+        p=self.module(); song={'name':'test','id':4,'source':p.name,'voices':[{'channel':'melody','slot':'fm0'}]}; song.update(extra)
         m=self.root/'bank.json'; m.write_text(json.dumps({'version':1,'songs':[song]})); return m
     def wav(self,width=2,channels=1):
         p=self.root/'sample.wav'
@@ -90,7 +90,7 @@ class Fixture(unittest.TestCase):
     def test_invalid_external_command_mode(self):
         with self.assertRaisesRegex(FormatError,'external_commands'):compile_bank(self.manifest(external_commands='groups'))
     def test_external_command_passthrough(self):
-        path=self.manifest(external_commands='passthrough',events={})
+        path=self.manifest()
         data,_,_=compile_bank(path);player=Player(data);player.start(4);player.step()
         self.assertEqual(player.events,[(1,1,1,0)])
     def test_psg_sfx_release_envelope(self):
@@ -237,7 +237,7 @@ class Fixture(unittest.TestCase):
         player.groups=0;player.select_arrangement(0,16,2)
         while player.tick<61:player.step()
         self.assertEqual([v['enabled'] for v in player.parts],[True,False,True])
-        self.assertEqual(len(player.events),1)  # Cue is independent of part muting.
+        self.assertEqual(len(player.events),2)  # Cues is independent of part muting.
     def test_arrangement_validation(self):
         from calliope.parts import layout
         item={'voices':[{'name':'one'},{'name':'two'}],'arrangements':{'bad':['one','two']}}
@@ -293,7 +293,7 @@ class Fixture(unittest.TestCase):
             self.assertTrue(p.parts[0]['enabled']);p.step();self.assertTrue(p.parts[1]['enabled'])
         p=Player(data);p.start(3);p.set_parts(0)
         for _ in range(140):p.step()
-        self.assertEqual(len(p.events),2);self.assertTrue(all(not v['enabled'] for v in p.parts))
+        self.assertEqual(len(p.events),3);self.assertTrue(all(not v['enabled'] for v in p.parts))
     def test_versions(self):
         for v in (232,248):
             with self.subTest(v=v):
@@ -363,7 +363,7 @@ class Fixture(unittest.TestCase):
     def test_reference_sequence_and_cue(self):
         data,_,_=compile_bank(self.manifest()); player=Player(data); player.start(4,9)
         for _ in range(150): player.step()
-        self.assertFalse(player.playing); self.assertEqual(player.events,[(1,9,123,456)])
+        self.assertFalse(player.playing); self.assertEqual(player.events,[(1,9,1,0)])
         self.assertEqual([x for x in player.trace if x[1]==0x11],[(t,17,0,fm_frequency(n+60)) for t,n in ((1,48),(31,52),(61,55),(91,60))])
     def test_loop_and_overflow(self):
         data,_,_=compile_bank(self.manifest(loop_order=0)); player=Player(data); player.start(4)

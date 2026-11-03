@@ -21,21 +21,20 @@ class Boundaries(unittest.TestCase):
         song.orders=[[0,1] for _ in module.channels]
         module.instruments[0]['features'].pop('MA',None)
         module.patterns={(0,0,0):{0:Cell(note=108,instrument=0),5:Cell(effects=[(0,0xec,3)])},
-                         (0,0,1):{0:Cell(note=109,instrument=0)}}
+                         (0,0,1):{0:Cell(note=109,instrument=0),5:Cell(effects=[(0,0xee,0)]),16:Cell(effects=[(0,0xee,7)])}}
         item={'id':1,'name':'sparse','source':str(source),
               'voices':[{'channel':0,'slot':'fm0','name':'melody'}],
-              'groups':{'all':['melody']},
-              'markers':[{'order':1,'row':5,'id':0},{'order':1,'row':16,'id':7}]}
+              'groups':{'all':['melody']}}
         with tempfile.TemporaryDirectory() as tmp:
             path=Path(tmp)/'bank.json';path.write_text(json.dumps({'version':1,'songs':[item]}))
             with patch('calliope.compiler.parse',return_value=module):
                 return compile_bank(path)[0]
 
-    def test_major_highlight_spans_orders_and_preserves_marker_and_cut_ticks(self):
+    def test_major_highlight_spans_orders_and_preserves_effect_and_cut_ticks(self):
         class Recorded(Player):
-            def boundary(self,flags,marker=0):
-                if flags&24:self.boundaries.append((self.tick,flags,marker))
-                super().boundary(flags,marker)
+            def boundary(self,flags,effect_value=0):
+                if flags&24:self.boundaries.append((self.tick,flags,effect_value))
+                super().boundary(flags,effect_value)
         data=self.compile_sparse();p=Recorded(data);p.boundaries=[];p.start(1)
         for _ in range(769):p.step()
         expected=[(1+row*6,8,0) for row in (0,20,40,60,80,100,120)]
@@ -53,7 +52,7 @@ class Boundaries(unittest.TestCase):
         self.assertLess(len(waits),128)
         self.assertEqual(sum(t[1] if t[0]==0 else t[0]-0x7f for t in waits),768)
 
-    def test_disabled_major_highlight_keeps_only_explicit_markers(self):
+    def test_disabled_major_highlight_keeps_only_ee_boundaries(self):
         data=self.compile_sparse((1,0));p=Player(data);p.start(1)
         p.set_parts(0,8)
         for _ in range(769):p.step()

@@ -165,18 +165,29 @@ class EditorGui(unittest.TestCase):
         self.assertFalse(self.window.progress_bar.isHidden());self.assertFalse(self.window.cancel_job.isHidden())
         self.window.set_progress(None);self.assertTrue(self.window.progress_bar.isHidden())
 
-    def test_deleting_last_arrangement_and_marker_restores_valid_song(self):
+    def test_deleting_last_arrangement_restores_valid_song(self):
         from calliope.editor.services import validate_document
         value={'version':1,'songs':[{'id':1,'name':'melody','source':'melody232.fur',
-               'voices':[{'name':'lead','channel':'melody','slot':'fm0'}],'external_commands':'passthrough'}]}
+               'voices':[{'name':'lead','channel':'melody','slot':'fm0'}]}]}
         self.window.document.base_dir=ROOT/'examples'
         self.window.replace(value);self.window.browser.setCurrentItem(self.window.browser.topLevelItem(0).child(0).child(0))
         form=self.window.properties
         form.add_member('arrangements');form.set('initial_arrangement','arrangement_1')
-        form.add_marker();form.remove_member('arrangements',0);form.remove_index('markers',0)
+        form.remove_member('arrangements',0)
         song=self.window.document.data['songs'][0]
         self.assertNotIn('arrangements',song);self.assertNotIn('initial_arrangement',song);self.assertNotIn('markers',song)
         self.assertEqual(validate_document(self.window.document.data,ROOT/'examples'),[])
-        self.window.history(-1);self.assertEqual(len(self.window.document.data['songs'][0]['markers']),1)
+        self.window.history(-1);self.assertEqual(len(self.window.document.data['songs'][0]['arrangements']),1)
+
+    def test_effect_boundaries_replace_marker_and_event_mapping_controls(self):
+        self.window.document.base_dir = ROOT/'examples'
+        self.window.replace({'version': 1, 'songs': [{'id': 1, 'name': 'song', 'source': 'melody232.fur'}]})
+        self.window.browser.setCurrentItem(self.window.browser.topLevelItem(0).child(0).child(0))
+        form = self.window.properties
+        self.assertNotIn('Markers & events', [form.tabs.tabText(i) for i in range(form.tabs.count())])
+        self.assertFalse(hasattr(form, 'add_event'))
+        self.assertEqual(self.window.boundary.itemText(2), 'Next EExx')
+        self.assertEqual(self.window.effect_value.maximum(), 255)
+        self.assertEqual(self.window.effect_value.prefix(), 'EE')
 
 if __name__=='__main__':unittest.main()

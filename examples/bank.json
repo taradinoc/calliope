@@ -4,13 +4,7 @@
     {
       "id": 1,
       "name": "melody",
-      "source": "melody232.fur",
-      "events": {
-        "1": {
-          "id": 7,
-          "parameter": 42
-        }
-      }
+      "source": "melody232.fur"
     },
     {
       "id": 2,
@@ -59,20 +53,7 @@
           "bass"
         ]
       },
-      "initial_arrangement": "happy",
-      "markers": [
-        {
-          "order": 0,
-          "row": 10,
-          "id": 2
-        }
-      ],
-      "events": {
-        "1": {
-          "id": 7,
-          "parameter": 42
-        }
-      }
+      "initial_arrangement": "happy"
     },
     {
       "id": 4,
@@ -85,7 +66,6 @@
       "name": "green_hill_zone",
       "source": "sonic_greenhillzone_annotated.fur",
       "pcm_gain": 1.0,
-      "external_commands": "passthrough",
       "fm_steal_order": ["fm4", "fm3", "fm2", "fm0", "fm1"],
       "voices": [
         {

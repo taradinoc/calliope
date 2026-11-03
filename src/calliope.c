@@ -123,11 +123,12 @@ u16 clp_start(u16 song)
     }
     return 0;
 }
-bool clp_setParts(u16 mask, ClpBoundary boundary, u16 marker)
+bool clp_setParts(u16 mask, ClpBoundary boundary, u16 effectValue)
 {
     u16 used = 0, effective = 0, i;
     if (!partCount || ((u32)mask >> partCount) ||
-        (boundary != CLP_IMMEDIATE && boundary != CLP_NEXT_BAR && boundary != CLP_NEXT_MARKER))
+        (boundary != CLP_IMMEDIATE && boundary != CLP_NEXT_BAR && boundary != CLP_NEXT_EFFECT) ||
+        (boundary == CLP_NEXT_EFFECT && effectValue > 255))
         return FALSE;
     for (i = 0; i < partCount; i++)
         if (mask & (1 << i))
@@ -143,23 +144,24 @@ bool clp_setParts(u16 mask, ClpBoundary boundary, u16 marker)
             if (!(partGroups[i] & mutedGroups))
                 effective |= 1 << i;
         }
-    if (!sendAt(11, (u8)boundary, request, effective | ((u32)marker << 16)))
+    if (!sendAt(11, (u8)boundary, request, effective | ((u32)effectValue << 16)))
         return FALSE;
     selectedParts = mask;
     return TRUE;
 }
-bool clp_setTempoScale(u16 scale, ClpBoundary boundary, u16 marker)
+bool clp_setTempoScale(u16 scale, ClpBoundary boundary, u16 effectValue)
 {
     if (!partCount || scale < CLP_TEMPO_MIN || scale > CLP_TEMPO_MAX ||
-        (boundary != CLP_IMMEDIATE && boundary != CLP_NEXT_BAR && boundary != CLP_NEXT_MARKER))
+        (boundary != CLP_IMMEDIATE && boundary != CLP_NEXT_BAR && boundary != CLP_NEXT_EFFECT) ||
+        (boundary == CLP_NEXT_EFFECT && effectValue > 255))
         return FALSE;
-    return sendAt(13, (u8)boundary, request, scale | ((u32)marker << 16));
+    return sendAt(13, (u8)boundary, request, scale | ((u32)effectValue << 16));
 }
-bool clp_selectArrangement(u8 arrangement, ClpBoundary boundary, u16 marker)
+bool clp_selectArrangement(u8 arrangement, ClpBoundary boundary, u16 effectValue)
 {
     if (arrangement >= arrangementCount)
         return FALSE;
-    return clp_setParts(le16(bankData + partMeta + partCount * 4 + arrangement * 2), boundary, marker);
+    return clp_setParts(le16(bankData + partMeta + partCount * 4 + arrangement * 2), boundary, effectValue);
 }
 bool clp_muteGroups(u16 mask)
 {

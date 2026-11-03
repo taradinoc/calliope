@@ -17,7 +17,7 @@ def main():
     module.flags['compat_extended'][23]=0
     module.patterns={(0,0,0):{0:Cell(effects=[(0,0xee,0xa1)]),1:Cell(effects=[(0,0x0b,2),(1,0x0d,1)])},
                      (0,0,2):{1:Cell(effects=[(0,0xee,0xb1)]),3:Cell(effects=[(0,0x0b,2),(1,0x0d,1)])}}
-    manifest=out/'bank.json';manifest.write_text(json.dumps({'version':1,'songs':[{'id':1,'name':'flow','source':str(source),'voices':[{'channel':0,'slot':'fm0'}],'external_commands':'passthrough'}]}))
+    manifest=out/'bank.json';manifest.write_text(json.dumps({'version':1,'songs':[{'id':1,'name':'flow','source':str(source),'voices':[{'channel':0,'slot':'fm0'}]}]}))
     with patch('calliope.compiler.parse',return_value=module):data,_,_=compile_bank(manifest,'pal' if args.pal else 'ntsc')
     raw=bytearray((ROOT/'audition/out/rom.bin').read_bytes());base=raw.index(b'BGM1');raw[base:base+len(data)]=data
     rom=out/'flow.bin';rom.write_bytes(raw)

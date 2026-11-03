@@ -231,7 +231,6 @@ def source_patterns(module, item):
     conductors = {}
     orders = bytearray()
     used = set()
-    markers = {(m['order'], m['row']): m['id'] for m in item.get('markers', [])}
     for bundle in flow.bundles:
         conductor = bytearray(uleb(len(bundle)))
         for order, row in bundle:
@@ -239,10 +238,13 @@ def source_patterns(module, item):
             beat, bar = song.highlights
             absolute = order * song.rows + row
             flags = 2 | (4 if beat and absolute % beat == 0 else 0) | (8 if bar and absolute % bar == 0 else 0)
-            marker = markers.get((order, row))
-            conductor.extend(uleb(ticks) + bytes((flags | (16 if marker is not None else 0),)))
-            if marker is not None:
-                conductor.extend(struct.pack('<H', marker))
+            effects = sorted({0 if value is None else value
+                              for channel in channels
+                              for _, effect, value in module.cell(sub, order, row, channel).effects
+                              if effect == 0xee})
+            conductor.extend(uleb(ticks) + bytes((flags | (16 if effects else 0),)))
+            if effects:
+                conductor.extend(uleb(len(effects)) + bytes(effects))
             conductor.extend(uleb(len(commands)) + commands)
         data = bytes(conductor)
         index = conductors.setdefault(data, len(conductors))
@@ -268,8 +270,7 @@ def source_patterns(module, item):
     config = json.dumps({
         'flags': module.flags, 'tuning': module.tuning, 'speeds': song.speeds,
         'arp_speed': song.arp_speed, 'rate': song.hz,
-        'slots': [v['slot'] for v in item['voices']], 'events': item.get('events', {}),
-        'external_commands': item.get('external_commands'),
+        'slots': [v['slot'] for v in item['voices']],
     }, sort_keys=True, separators=(',', ':')).encode()
     blobs = list(conductors) + list(patterns)
     # Three-byte directory pointers and per-blob u16 lengths; all costs counted.

@@ -35,7 +35,7 @@ class SampleSelection(unittest.TestCase):
         source=ROOT/'examples/sonic_greenhillzone_annotated.fur';module=parse(source)
         module.patterns={key:value for key,value in module.patterns.items() if key[1]==5}
         with tempfile.TemporaryDirectory() as tmp:
-            path=Path(tmp)/'bank.json';path.write_text(json.dumps({'version':1,'songs':[{'id':2,'name':'drums','external_commands':'passthrough','pcm_gain':0.9,'source':str(source),'voices':[{'channel':5,'slot':'pcm'}],'loop_order':0}]}))
+            path=Path(tmp)/'bank.json';path.write_text(json.dumps({'version':1,'songs':[{'id':2,'name':'drums','pcm_gain':0.9,'source':str(source),'voices':[{'channel':5,'slot':'pcm'}],'loop_order':0}]}))
             with patch('calliope.compiler.parse',return_value=module):_,report,_=compile_bank(path)
         self.assertEqual(report['sample_variants'],2)
         self.assertEqual({sample['sample'] for sample in report['music_samples']},{0,1})

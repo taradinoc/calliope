@@ -11,7 +11,7 @@ def clean_optional_collections(value):
     value = copy.deepcopy(value)
     if not isinstance(value, dict):
         return value
-    for key in ("groups", "arrangements", "markers", "events"):
+    for key in ("groups", "arrangements"):
         collection = value.get(key)
         if isinstance(collection, (dict, list)) and not collection:
             del value[key]

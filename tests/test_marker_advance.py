@@ -21,7 +21,7 @@ class MarkerAdvance(unittest.TestCase):
         s.rows=4;s.orders=[[0,1] for _ in self.module.channels];s.speeds=[3]
         self.module.patterns={}
         self.item={'id':1,'name':'advance','source':str(ROOT/'examples/fm_ring.fur'),
-                   'voices':[{'channel':0,'slot':'fm0'}],'external_commands':'passthrough'}
+                   'voices':[{'channel':0,'slot':'fm0'}]}
 
     def effect(self,order,row,*effects):
         self.module.patterns[0,0,order]=self.module.patterns.get((0,0,order),{})
@@ -53,10 +53,10 @@ class MarkerAdvance(unittest.TestCase):
         p=self.play(self.compile({'marker_advance_ticks':5},{'marker_advance_ticks':2}))
         self.assertEqual(p.events,[(11,1,7,0)])
 
-    def test_clamp_start_preserves_source_order_and_mapping(self):
+    def test_clamp_start_preserves_source_order(self):
         self.effect(0,0,(0xee,7));self.effect(0,1,(0xee,8))
-        p=self.play(self.compile({'marker_advance_ticks':100},{'events':{'7':{'id':1000,'parameter':42}}}))
-        self.assertEqual(p.events,[(1,1,1000,42),(1,1,8,0)])
+        p=self.play(self.compile({'marker_advance_ticks':100}))
+        self.assertEqual(p.events,[(1,1,7,0),(1,1,8,0)])
 
     def test_loop_cues_remain_in_loop_and_repeat(self):
         self.effect(1,0,(0xee,7));self.effect(1,2,(0xee,8))
@@ -70,10 +70,11 @@ class MarkerAdvance(unittest.TestCase):
         p=self.play(self.compile({'marker_advance_ticks':4}))
         self.assertEqual(p.events,[(4,1,7,0)])
 
-    def test_music_and_arrangement_markers_keep_original_timing(self):
+    def test_music_and_effect_boundaries_keep_original_timing(self):
         self.module=parse(ROOT/'examples/fm_ring.fur')
         self.module.patterns[0,0,1][2].effects.append((0,0xee,7))
-        item={'markers':[{'order':0,'row':2,'id':42}]}
+        self.module.patterns[0,0,1][2].effects.append((1,0xee,42))
+        item={}
         baseline=self.play(self.compile(item=item),50)
         advanced=self.play(self.compile({'marker_advance_ticks':5},item),50)
         self.assertEqual(baseline.trace,advanced.trace)
@@ -88,6 +89,47 @@ class MarkerAdvance(unittest.TestCase):
         for row in range(4):self.effect(0,row,*[(0xee,7)]*10)
         with self.assertRaisesRegex(FormatError,'marker advance tick exceeds'):
             self.compile({'marker_advance_ticks':100})
+
+    def test_boundaries_match_raw_values_and_keep_source_channels(self):
+        self.module.subsongs[0].orders = [[0, 1] for _ in self.module.channels]
+        self.module.patterns[0, 1, 0] = {1: Cell(effects=[(0, 0xee, 0xa2)])}
+        self.effect(0, 1, (0xee, 7), (0xee, 7))
+        data = self.compile({'marker_advance_ticks': 2}, {
+            'voices': [{'channel': 0, 'slot': 'fm0'}, {'channel': 1, 'slot': 'fm1'}]})
+        p = Player(data); p.start(1); p.set_parts(0, 16, 0xa2)
+        for _ in range(3): p.step()
+        self.assertEqual(p.events, [(2, 1, 7, 0), (2, 1, 7, 0), (2, 1, 0xa2, 1)])
+        self.assertIsNotNone(p.pending_parts)
+        p.step()
+        self.assertIsNone(p.pending_parts)
+        self.assertFalse(any(v['enabled'] for v in p.parts))
+
+    def test_boundary_only_matches_requested_value_and_repeats_in_loop(self):
+        self.effect(1, 0, (0xee, 7)); self.effect(1, 2, (0xee, 255))
+        p = Player(self.compile({'marker_advance_ticks': 4}, {'loop_order': 1}))
+        p.start(1); p.set_parts(0, 16, 255)
+        for _ in range(18): p.step()
+        self.assertIsNotNone(p.pending_parts)
+        p.step(); self.assertIsNone(p.pending_parts)
+        p.set_parts(1, 16, 255)
+        for _ in range(12): p.step()
+        self.assertIsNone(p.pending_parts); self.assertTrue(p.parts[0]['enabled'])
+        with self.assertRaisesRegex(FormatError, 'invalid boundary'): p.set_parts(0, 16, 256)
+
+    def test_obsolete_manifest_cues_are_rejected(self):
+        for key, value in [('markers', []), ('events', {}), ('external_commands', 'passthrough')]:
+            with self.assertRaisesRegex(FormatError, 'no longer supported'):
+                self.compile(item={key: value})
+
+    def test_ee00_boundary_precedes_delayed_note(self):
+        self.effect(0, 1, (0xed, 2), (0xee, None))
+        data = self.compile()
+        p = Player(data); p.start(1); p.set_parts(0, 16, 0)
+        for _ in range(3): p.step()
+        self.assertIsNotNone(p.pending_parts)
+        p.step(); self.assertIsNone(p.pending_parts)
+        for _ in range(2): p.step()
+        self.assertEqual(p.events, [(6, 1, 0, 0)])
 
     def test_invalid_settings(self):
         for value in (-1,65536,True,1.5,'5',None):

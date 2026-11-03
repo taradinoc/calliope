@@ -23,11 +23,11 @@ See [consumer integration](../../docs/integration.md) for the build requirements
 
 Each cue targets a segment: a whole word or a syllable separated by `_`.
 EEF0 starts a line and its first segment. EEF1 starts each later segment.
-`bank.json` sets `external_commands` to `passthrough`. Calliope then sends
+Calliope automatically sends
 EEF0 as event ID `0xf0` and EEF1 as event ID `0xf1`. These IDs have no built-in
 lyric meaning. The game assigns their meaning in `receiveCue()`.
 
-With passthrough, `event.parameter` identifies the original Furnace source
+`event.parameter` identifies the original Furnace source
 channel. This example does not need that value. `event.generation` contains
 the generation returned by `clp_start()`. Each accepted replay advances the counter; `clp_poll()`
 discards events from older generations. Event type `1` identifies an
@@ -94,7 +94,7 @@ The next line scrolls from 15 ticks before its first cue to three ticks before
 contact. The ball follows an arc between segment centers. After a long gap, the
 next advance notification starts the ball's next flight.
 
-Gaps after a lyric must last at least three times the marker advance to show a
+Gaps after a lyric must last at least three times the event advance to show a
 BREAK label. The last word stays visible for one advance before the break screen.
 The intro needs only twice the advance, since it has no departing word. Both use
 a 32-dash meter that fills until the next flight. The intro label appears below
@@ -111,7 +111,7 @@ The active line has white unsung segments and magenta sung segments. Previous li
 are dark magenta. Upcoming lines are gray. One blank row separates lyric lines.
 The last line stays centered during the final wait.
 
-One marker advance after the final word, the lyric screen is replaced by a
+One event advance after the final word, the lyric screen is replaced by a
 full-screen end card from `media/sound-by-calliope.bmp`. If the song ends before
 that wait completes, playback completion starts the card early. One advance
 after playback ends, the screen clears and `PRESS START FOR SONG MENU` appears in the
@@ -147,10 +147,9 @@ use the supported line width. Runtime checks still stop playback and show an
 error for lost events, queue overflow, or mismatched lyrics, because a missing
 cue would shift later segment assignments.
 
-EExx notifications differ from the manifest's `markers` array. That array
-defines arrangement boundaries for `CLP_NEXT_MARKER` requests.
-`marker_advance_ticks` moves EExx notifications only. It does not move those
-boundaries. See [external commands](../../docs/authoring.md#external-commands)
+Each EExx also defines a synchronization boundary for `CLP_NEXT_EFFECT`,
+matched by its raw effect value. `marker_advance_ticks` moves game notifications
+only. It does not move those boundaries. See [external commands](../../docs/authoring.md#external-commands)
 and [arrangements](../../docs/arrangements.md) for the two mechanisms.
 
 `inc/diagnostics.h` defines an emulator snapshot for `smoke.py`. Playback

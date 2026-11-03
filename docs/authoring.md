@@ -153,7 +153,7 @@ Opcode 35 updates logical period shadows but cannot clear the physical next-note
 
 ## External commands
 
-A song may set `"external_commands": "passthrough"`. An unmapped EExx then emits event ID xx and parameter equal to the original zero-based Furnace source-channel index. Explicit entries in the events dictionary override passthrough. Repeated commands are preserved. A/B/CA/CB/CC annotations have no special interpretation; application code may use them to call `clp_setPartGroups` or perform any other game action. Muting never suppresses these cues.
+Every Furnace EExx emits event ID xx and parameter equal to the original zero-based Furnace source-channel index. No bank configuration is required. The former `events`, `external_commands`, and `markers` fields are rejected; remove them and author synchronization positions as EExx in the song. Each EExx also defines a boundary for `CLP_NEXT_EFFECT`, matched against its raw xx value. Repeated commands are preserved. A/B/CA/CB/CC annotations have no special interpretation; application code may use them to call `clp_setPartGroups` or perform any other game action. Muting never suppresses these cues.
 
 Set `"marker_advance_ticks": 30` at the bank root to deliver EExx notifications
 30 music ticks before their source rows. A song can override this value;
@@ -163,9 +163,9 @@ is half a second; at 50 Hz it is 0.6 seconds. Tick-rate changes affect elapsed
 lead time, while groove and row-speed changes are included in the compiled
 timeline. This setting does not apply to SFX.
 
-The converter moves only EExx events, including mapped and passthrough events,
+The converter moves only EExx notifications
 across rows and order boundaries on the resolved playback route. Notes, tempo
-commands, bar boundaries, and explicit `markers` used for arrangements retain
+commands, bar boundaries, and EExx synchronization boundaries retain
 their original timing. Events retain their IDs, parameters, duplicates, and
 source order when they land on the same tick. Events that would precede song
 start clamp to its first tick. Events in a loop clamp to loop entry so they
@@ -182,15 +182,15 @@ A single 32-byte FM patch cache occupies 1700h..171Fh. Banks support up to 255 d
 PCM descriptor scratch uses 1720h..172Fh, the refill guard/stack 1738h..177Fh, and four SFX states 1800h..183Fh. The sequence cache reserves 1900h..191Fh and refills twelve bytes from the current cursor. A PCM-first channel schedule uses 1920h..192Fh, the synchronization flag uses 193Eh, and sixteen four-byte channel cursor/wait records occupy 1940h..197Fh. Group/LFO helpers occupy 1980h..19FFh. Song patterns align to sixteen bytes and remain inside one 32 KB ROM bank. Context changes invalidate the shared cache. The synchronized command queue occupies 1A00h..1A7Fh (32 four-byte records); patch/note delivery helpers occupy 1A80h..1AF1h. Logical voices use 1B00h..1BFFh, the PCM FIFO 1C00h..1CFFh, and shared ABI 1D00h..1E7Fh. The main stack guard remains 1F78h..1F7Fh. The image remains 8192 bytes. Assembly rejects overlap; measured stack guards supplement, but do not prove, all possible stack bounds.
 
 Tempo scaling uses command 13: boundary flags, scale in the argument low word,
-and marker in the high word. Pure-driver state occupies 1D22h..1D2Ah: active
-scale:u16, pending boundary:u8, pending scale:u16, marker:u16, effective
+and effect value in the high word. Pure-driver state occupies 1D22h..1D2Ah: active
+scale:u16, pending boundary:u8, pending scale:u16, effect value:u16, effective
 fifth-Hz rate:u16. The elapsed-publication sequence remains at 1D21h.
 
 ## Authored order flow
 
 Music accepts modern 0B order jumps and 0D pattern breaks. Commands are evaluated in source channel/effect-column order. The last 0B selects the destination order; 0D selects its row, irrespective of the relative placement of the two commands. FF ends playback after its row. A break past the final order ends playback; natural order exhaustion does not imply a loop. Out-of-range explicit jump targets are errors.
 
-The converter follows the reachable source rows, splits bundles at discontinuities and loop entry, and represents the first repeated source coordinate as one terminal loop. This supports an intro plus a loop into the middle of a pattern without adding a runtime branch interpreter. Source order/row coordinates remain in diagnostics and marker lookup. There may be at most 256 compiled bundles, with loop index at most 254 (255 is the no-loop sentinel).
+The converter follows the reachable source rows, splits bundles at discontinuities and loop entry, and represents the first repeated source coordinate as one terminal loop. This supports an intro plus a loop into the middle of a pattern without adding a runtime branch interpreter. Source order/row coordinates remain in diagnostics and effect-boundary generation. There may be at most 256 compiled bundles, with loop index at most 254 (255 is the no-loop sentinel).
 
 A manifest loop_order remains a source order index, not a compiled bundle index. It must be reachable and agree with an authored loop. Legacy jumpTreatment 1 keeps the first jump/break; treatment 2 allows a later break to replace a jump. Both match the pinned format-232 Furnace source. The ignoreJumpAtEnd flag is honored in both supported file versions. Inherited instrument, volume and noise-mode changes must be reset before the first dependent loop note; timing and active PSG macro loop restrictions still apply. These checks prevent a single compiled loop from silently freezing first-pass state.
 

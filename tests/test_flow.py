@@ -65,7 +65,7 @@ class OrderFlow(unittest.TestCase):
         effect(m,0,1,0,(0x0b,2),(0xee,0xa1))
         effect(m,2,1,0,(0xee,0xb1));effect(m,2,3,0,(0x0b,2),(0x0d,1))
         with tempfile.TemporaryDirectory() as tmp:
-            path=Path(tmp)/'bank.json';path.write_text(json.dumps({'version':1,'songs':[{'id':1,'name':'route','source':str(ROOT/'examples/fm_ring.fur'),'voices':[{'channel':0,'slot':'fm0'}],'external_commands':'passthrough'}]}))
+            path=Path(tmp)/'bank.json';path.write_text(json.dumps({'version':1,'songs':[{'id':1,'name':'route','source':str(ROOT/'examples/fm_ring.fur'),'voices':[{'channel':0,'slot':'fm0'}]}]}))
             with patch('calliope.compiler.parse',return_value=m):data,report,_=compile_bank(path)
         self.assertEqual([(r['order'],r['row']) for r in report['rows']],[(0,0),(0,1),(2,0),(2,1),(2,2),(2,3)])
         p=Player(data);p.start(1)

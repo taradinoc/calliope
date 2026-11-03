@@ -79,7 +79,7 @@ together. It does not resample PCM: sample pitch and duration stay fixed,
 which can change the alignment of sustained PCM with the score. SFX timing
 should keep its independent clock.
 
-`clp_setTempoScale(u16 scale, ClpBoundary boundary, u16 marker)` queues an
+`clp_setTempoScale(u16 scale, ClpBoundary boundary, u16 effectValue)` queues an
 8.8 multiplier over the authored rate. `CLP_TEMPO_NORMAL` is 256; the supported
 range is `CLP_TEMPO_MIN` (128, 0.5x) through `CLP_TEMPO_MAX` (512, 2x).
 The effective rate is `(authored_rate5 * scale + 128) >> 8`, rounded to the
@@ -88,10 +88,10 @@ rate is 240 Hz, or four music ticks per nominal 60 Hz scheduling slice.
 The Z80 caches that rate when scale or authored rate changes, with DAC polls
 inside its bounded multiply. Hybrid uses a wide intermediate for the same rule.
 
-The API uses the same `CLP_IMMEDIATE`, `CLP_NEXT_BAR` and `CLP_NEXT_MARKER`
+The API uses the same `CLP_IMMEDIATE`, `CLP_NEXT_BAR` and `CLP_NEXT_EFFECT`
 boundaries as parts. Immediate means command consumption, including while
 paused. Bars follow the Furnace major highlight; zero highlight disables them.
-Markers must occur in the compiled conductor. Deferred requests wait through
+EExx boundaries are authored in Furnace. The effectValue argument matches the raw xx byte (0..255), independently of game-notification advance. Deferred requests wait through
 pause and apply when that boundary next occurs. The boundary tick has already
 begun; the updated rate supplies credit starting with the next scheduling slice.
 
@@ -106,7 +106,7 @@ phase. Elapsed music ticks and authored cues retain their existing units.
 
 Requests are scoped to the latest accepted song generation. Invalid scales,
 invalid boundaries, requests before a song has been accepted, and full queues
-return false. A true return means queued, not already applied. A missing marker
+return false. A true return means queued, not already applied. A missing EExx value
 or disabled bar boundary leaves a deferred request pending until superseded,
 stopped or replaced by a song start. No bank format change is required; rebuild
 the adapter and driver together.

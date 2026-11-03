@@ -27,8 +27,7 @@ Select a bank entry in the browser. Properties contains GUI forms:
 - General: name, ID, source file picker, subsong selector, gain, and SFX priority.
 - Channels: voice names, Furnace channel selectors, and Genesis destinations.
 - Groups & arrangements: named groups/arrangements with voice membership checkboxes.
-- Markers & events: numeric source positions and game event mappings.
-- Playback: optional tempo/loop overrides, LFO, marker lookahead, and stealing order.
+- Playback: optional tempo/loop overrides, LFO, event advance, and stealing order.
 - SFX playback: loop boundaries, eligible channel checkboxes, and PSG relocation.
 
 Controls use audio terminology rather than JSON field names. Optional overrides
@@ -55,7 +54,7 @@ Save As rebases relative resource paths. Unknown JSON fields and meaningful
 object order are retained, including arrangement/group order used by generated
 headers. Undo/redo preserves these fields. JSON whitespace is normalized on save.
 
-Empty optional arrangements, groups, markers, and event mappings are omitted.
+Empty optional arrangements and groups are omitted. EExx positions and values are authored in Furnace; every effect emits its raw value and original source channel to the game.
 Deleting the last arrangement also removes its starting-arrangement reference.
 Existing banks with these empty sections are cleaned up in memory when opened;
 save the bank to persist the repair. Named arrangements or groups with no members
@@ -98,9 +97,9 @@ text editing control, to layer effects over music. Each trigger gets a token;
 Cancel token stops a particular effect. Priority overrides are preview controls,
 not manifest edits. Music can be paused/resumed or stopped independently.
 
-Arrangement switching supports immediate, bar, or marker boundaries. The mixer exposes FM/PSG volume, music PCM priority, physical/group
+Arrangement switching supports immediate, bar, or EExx boundaries. The mixer exposes FM/PSG volume, music PCM priority, physical/group
 mute masks, logical part selection, and tempo (50..200 percent).
-Tempo applies at the selected immediate/bar/marker boundary independently of parts. These call the real public adapter API.
+Tempo applies at the selected immediate/bar/EExx boundary independently of parts. These call the real public adapter API.
 
 Channel telemetry shows real ownership and active tokens. An adapter response
 means queued, not successful allocation. Allocation messages confirm observed

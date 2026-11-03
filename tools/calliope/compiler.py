@@ -98,6 +98,16 @@ def validate_manifest(m):
     for category in ("songs", "sfx"):
         local = set()
         for item in m.get(category, []):
+            if "events" in item or "external_commands" in item:
+                raise FormatError(
+                    "events and external_commands are no longer supported; "
+                    "EExx always emits its value and source channel"
+                )
+            if "markers" in item:
+                raise FormatError(
+                    "markers are no longer supported; "
+                    "author EExx boundaries in the Furnace song"
+                )
             name = item.get("name", "")
             if not re.fullmatch("[A-Za-z_][A-Za-z_0-9]*", name) or name in names:
                 raise FormatError("invalid/duplicate resource name")
@@ -675,10 +685,6 @@ def compile_bank(
                     raise FormatError("duplicate source channel")
                 mapping[ch] = slot
                 slots.add(slot)
-            if item.get("external_commands") not in (None, "passthrough"):
-                raise FormatError(
-                    "external_commands must be passthrough when specified"
-                )
             part_data, arrangements, initial_arrangement = parts_layout(
                 item, list(mapping.values())
             )
@@ -694,18 +700,6 @@ def compile_bank(
                 initial_arrangement = 0
                 logical = True
             part_ids = {ch: i for i, ch in enumerate(mapping)}
-            markers = item.get("markers", [])
-            marker_rows = {}
-            for mark in markers:
-                order = integer(
-                    mark.get("order"), 0, len(s.orders[0]) - 1, "marker order"
-                )
-                row = integer(mark.get("row"), 0, s.rows - 1, "marker row")
-                if (order, row) in marker_rows:
-                    raise FormatError("duplicate marker boundary")
-                marker_rows[order, row] = integer(mark.get("id"), 0, 65535, "marker ID")
-            if markers and not logical:
-                raise FormatError("markers require a logical part layout")
             if set(used_channels(module, sub)) - set(mapping):
                 raise FormatError("unmapped active source channel")
             if module.flags.get("timebase", 0):
@@ -714,7 +708,6 @@ def compile_bank(
             streams = []
             stopped = False
             initialized = set()
-            eventmap = item.get("events", {})
             envelopes = {
                 ch: VolumeEnvelope(
                     slot != 8,
@@ -870,12 +863,21 @@ def compile_bank(
                         absolute_row = order * s.rows + row
                         bar = s.highlights[1]
                         flags = 8 if bar and absolute_row % bar == 0 else 0
-                        marker = marker_rows.get((order, row))
-                        if flags or marker is not None:
-                            payload.extend(
-                                (0x15, flags | (16 if marker is not None else 0))
-                            )
-                            payload.extend((marker or 0).to_bytes(2, "little"))
+                        # Boundaries belong to the authored row, before any channel
+                        # notes or delays. Event advance affects notifications
+                        # only; matching always uses the original EE value.
+                        boundary_values = set()
+                        for ch in sorted(mapping):
+                            for _, effect, value in module.cell(sub, order, row, ch).effects:
+                                if effect == 0xEE:
+                                    value = 0 if value is None else value
+                                    if value in boundary_values:
+                                        continue
+                                    boundary_values.add(value)
+                                    payload.extend((0x15, flags | 16, value, 0))
+                                    flags = 0
+                        if flags:
+                            payload.extend((0x15, flags, 0, 0))
                     for ch, slot in sorted(mapping.items()):
                         row_automation = automation
                         automation = {}
@@ -1453,25 +1455,8 @@ def compile_bank(
                                         + ": external commands are forbidden in SFX"
                                     )
                                 value = 0 if value is None else value
-                                event = eventmap.get(str(value))
-                                if (
-                                    event is None
-                                    and item.get("external_commands") == "passthrough"
-                                ):
-                                    event = {"id": value, "parameter": ch}
-                                if event is None:
-                                    raise FormatError(
-                                        context + ": unmapped external event"
-                                    )
-                                eid = integer(event["id"], 0, 65535, "event ID")
-                                param = integer(
-                                    event.get("parameter", 0),
-                                    0,
-                                    65535,
-                                    "event parameter",
-                                )
                                 payload.append(OP_EVENT)
-                                payload.extend(struct.pack("<HH", eid, param))
+                                payload.extend(struct.pack("<HH", value, ch))
                             else:
                                 raise FormatError(
                                     context + f": effect {effect:02X} not yet supported"

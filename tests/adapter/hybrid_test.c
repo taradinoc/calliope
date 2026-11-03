@@ -374,8 +374,8 @@ static void music_silence(void)
 }
 static void authored_bank(const char *name)
 {
-    /* Melody now writes silent TLs at EOF; the other song traces are unchanged. */
-    static const u32 golden[]={0x4f7f47a4UL,0x76b1144eUL,0xe64a4057UL,0xd8f659e2UL,0x4af5e588UL};
+    /* Hash chip writes and logical timing, independent of packed ROM addresses. */
+    static const u32 golden[]={0x7df29ea8UL,0x5da440caUL,0x035e6b85UL,0x6d0becd6UL,0x3bc773a0UL};
     FILE *file;size_t n;u8 song;
     assert(fopen_s(&file,name,"rb")==0);n=fread(data,1,sizeof(data),file);assert(!ferror(file));fclose(file);
     assert(n>32 && memcmp(data,"BGM1",4)==0);
@@ -387,7 +387,7 @@ static void authored_bank(const char *name)
             u16 record;u8 byte;
             render();if(localFault) fprintf(stderr,"song %u clock %u fault %u pc %lu order %u channel %u mode %u\n",song,tick,localFault,(unsigned long)pc,order,selectedVoice,channelDecode);assert(!localFault && recordCount<=CLH_RECORDS);
             for(record=0;record<recordCount;record++) for(byte=0;byte<CLH_RECORD_BYTES;byte++) trace=(trace^recordAt(record)[byte])*16777619UL;
-            trace=(trace^recordCount)*16777619UL;trace=(trace^songTick)*16777619UL;trace=(trace^pc)*16777619UL;
+            trace=(trace^recordCount)*16777619UL;trace=(trace^songTick)*16777619UL;
             timeline=nextTimeline;clockRemainder=nextRemainder;pendingRender=0;
 #if CALLIOPE_HOST_PCM
             pcmSent=pcmPrepared;
@@ -415,14 +415,14 @@ static void tempo_controls(void)
     assert(clp_setTempoScale(384,CLP_IMMEDIATE,0));controls();
     assert(tempoScale==384 && !tempoFlags && credit==123 && paused);
     switchFlags=CLP_NEXT_BAR;switchMask=0;
-    assert(clp_setTempoScale(128,CLP_NEXT_MARKER,9));controls();
-    boundary(CLP_NEXT_MARKER,8);assert(tempoScale==384 && tempoFlags);
+    assert(clp_setTempoScale(128,CLP_NEXT_EFFECT,9));controls();
+    boundary(CLP_NEXT_EFFECT,8);assert(tempoScale==384 && tempoFlags);
     boundary(CLP_NEXT_BAR,0);assert(!switchFlags && tempoFlags);
-    boundary(CLP_NEXT_MARKER,9);assert(tempoScale==128 && !tempoFlags && credit==123);
+    boundary(CLP_NEXT_EFFECT,9);assert(tempoScale==128 && !tempoFlags && credit==123);
     assert(clp_setTempoScale(512,CLP_NEXT_BAR,0));controls();
-    assert(clp_setTempoScale(192,CLP_NEXT_MARKER,7));controls();
+    assert(clp_setTempoScale(192,CLP_NEXT_EFFECT,7));controls();
     boundary(CLP_NEXT_BAR,0);assert(tempoScale==128);
-    boundary(CLP_NEXT_MARKER,7);assert(tempoScale==192);
+    boundary(CLP_NEXT_EFFECT,7);assert(tempoScale==192);
     assert(clp_setTempoScale(512,CLP_NEXT_BAR,0));controls();
     assert(clp_setTempoScale(256,CLP_IMMEDIATE,0));controls();assert(!tempoFlags && tempoScale==256);
     assert(sendAt(13,CLP_IMMEDIATE,2,512));controls();assert(tempoScale==256);
@@ -444,7 +444,7 @@ static void tempo_controls(void)
     /* A new song restores unity and cancels the pending request. */
     memset(data+2000,0,100);data[2011]=1;data[2012]=1;put24(data+2008,2050);put24(data+2004,2070);
     data[2014]=0x2c;data[2015]=1;put24(data+2070,2080);put24(data+2080,2090);put24(data+2083,2095);
-    tempoFlags=CLP_NEXT_MARKER;startMusic(2000,8);assert(tempoScale==256 && !tempoFlags);
+    tempoFlags=CLP_NEXT_EFFECT;startMusic(2000,8);assert(tempoScale==256 && !tempoFlags);
 }
 #include "effect_index_test.h"
 static void elapsed_position(void)

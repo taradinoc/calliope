@@ -14,7 +14,7 @@ def main():
     region='pal' if args.pal else 'ntsc';out=ROOT/'out'/('legacy-pcm-'+region);out.mkdir(exist_ok=True)
     source=ROOT/'examples/sonic_greenhillzone_annotated.fur';module=parse(source)
     module.patterns={key:value for key,value in module.patterns.items() if key[1]==5}
-    manifest=out/'bank.json';manifest.write_text(json.dumps({'version':1,'songs':[{'id':2,'name':'drums','external_commands':'passthrough','pcm_gain':0.9,'source':str(source),'voices':[{'channel':5,'slot':'pcm'}],'loop_order':0}],'sfx':[{'id':5,'name':'chu','source':str(ROOT/'examples/chu.wav')}]}))
+    manifest=out/'bank.json';manifest.write_text(json.dumps({'version':1,'songs':[{'id':2,'name':'drums','pcm_gain':0.9,'source':str(source),'voices':[{'channel':5,'slot':'pcm'}],'loop_order':0}],'sfx':[{'id':5,'name':'chu','source':str(ROOT/'examples/chu.wav')}]}))
     with patch('calliope.compiler.parse',return_value=module):data,report,_=compile_bank(manifest,region)
     raw=bytearray((ROOT/'audition/out/rom.bin').read_bytes());base=raw.index(b'BGM1');raw[base:base+len(data)]=data
     rom=out/'legacy.bin';rom.write_bytes(raw)

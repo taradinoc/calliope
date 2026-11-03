@@ -5,6 +5,7 @@
 typedef struct
 {
    u8 type, flags;
+   /* EExx: id is xx; parameter is the zero-based Furnace source channel. */
    u16 id, parameter, generation;
    u32 tick;
 } ClpEvent;
@@ -24,12 +25,13 @@ typedef enum
 {
    CLP_IMMEDIATE = 1,
    CLP_NEXT_BAR = 8,
-   CLP_NEXT_MARKER = 16
+   CLP_NEXT_EFFECT = 16
 } ClpBoundary;
-/* BAR follows the Furnace major highlight; explicit markers remain supported. */
+/* BAR follows the Furnace major highlight. EFFECT waits for EExx, matching xx
+   (0..255), at its authored row, independent of notification advance. */
 /* Pending part controls use latest-request-wins semantics. */
-bool clp_setParts(u16 mask, ClpBoundary boundary, u16 marker);
-bool clp_selectArrangement(u8 arrangement, ClpBoundary boundary, u16 marker);
+bool clp_setParts(u16 mask, ClpBoundary boundary, u16 effectValue);
+bool clp_selectArrangement(u8 arrangement, ClpBoundary boundary, u16 effectValue);
 /* 8.8 multiplier, applied to authored tempo; SFX timing is independent.
    Effective tick rate rounds to 0.2 Hz. Latest tempo request wins, independently
    of part requests. Immediate applies while paused; deferred waits for resume.
@@ -38,7 +40,7 @@ bool clp_selectArrangement(u8 arrangement, ClpBoundary boundary, u16 marker);
 #define CLP_TEMPO_MIN 128
 #define CLP_TEMPO_NORMAL 256
 #define CLP_TEMPO_MAX 512
-bool clp_setTempoScale(u16 scale, ClpBoundary boundary, u16 marker);
+bool clp_setTempoScale(u16 scale, ClpBoundary boundary, u16 effectValue);
 /* Membership changes reapply current group mutes when the request is consumed. */
 bool clp_setPartGroups(u8 part, u16 groups);
 bool clp_muteGroups(u16 mask);

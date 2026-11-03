@@ -52,7 +52,7 @@ class EditorServices(unittest.TestCase):
         from calliope.compiler import default_voices
         from calliope.furnace import parse, FormatError
         for source in ('melody232.fur', 'elevator.fur', 'noise232.fur'):
-            song = dict(id=1, name='song', source=source, external_commands='passthrough')
+            song = dict(id=1, name='song', source=source)
             doc = dict(version=1, songs=[song])
             original = copy.deepcopy(doc)
             implicit = compile_document(doc, ROOT/'examples')
@@ -105,7 +105,7 @@ class EditorServices(unittest.TestCase):
             self.assertEqual(data[8], 63)
 
     def test_preview_cache_and_progress(self):
-        doc={'version':1,'songs':[{'id':1,'name':'melody','source':'melody232.fur','voices':[{'channel':'melody','slot':'fm0'}],'external_commands':'passthrough'}]}
+        doc={'version':1,'songs':[{'id':1,'name':'melody','source':'melody232.fur','voices':[{'channel':'melody','slot':'fm0'}]}]}
         with tempfile.TemporaryDirectory() as cache:
             progress=[]
             first=cached_compile(doc,ROOT/'examples','ntsc','z80',cache,lambda *args:progress.append(args))
@@ -173,11 +173,11 @@ class EditorServices(unittest.TestCase):
 class EditorDocument(unittest.TestCase):
     def test_existing_empty_optional_sections_are_repaired_without_dropping_memberships(self):
         value={'version':1,'songs':[{'id':1,'name':'song','source':'song.fur','arrangements':{},
-               'initial_arrangement':'deleted','markers':[],'groups':{},'events':{},'unknown':{}}]}
+               'initial_arrangement':'deleted','groups':{},'unknown':{}}]}
         doc=Document(value)
         self.assertTrue(doc.dirty)
         song=doc.data['songs'][0]
-        for key in ('arrangements','initial_arrangement','markers','groups','events'):self.assertNotIn(key,song)
+        for key in ('arrangements','initial_arrangement','groups'):self.assertNotIn(key,song)
         self.assertEqual(song['unknown'],{})
         value['songs'][0].update(arrangements={'silent':[]},initial_arrangement='silent',groups={'empty_group':[]})
         doc.replace(value)

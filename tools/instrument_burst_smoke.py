@@ -54,7 +54,6 @@ def fixture(out, pal):
     manifest = out / "bank.json"
     manifest.write_text(json.dumps({"version": 1, "songs": [{
         "id": 1, "name": "burst", "source": str(source), "voices": voices,
-        "external_commands": "passthrough",
     }]}))
     with patch("calliope.compiler.parse", return_value=module):
         bank, _, _ = compile_bank(manifest, "pal" if pal else "ntsc")

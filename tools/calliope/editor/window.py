@@ -218,12 +218,15 @@ class EditorWindow(QMainWindow):
         self.arrangement.setMinimumWidth(120)
         controls.addWidget(self.arrangement)
         self.boundary = QComboBox()
-        self.boundary.addItems(["Immediate", "Next bar", "Next marker"])
+        self.boundary.addItems(["Immediate", "Next bar", "Next EExx"])
         controls.addWidget(self.boundary)
-        self.marker = QSpinBox()
-        self.marker.setRange(0, 65535)
-        controls.addWidget(QLabel("Marker"))
-        controls.addWidget(self.marker)
+        self.effect_value = QSpinBox()
+        self.effect_value.setRange(0, 255)
+        self.effect_value.setDisplayIntegerBase(16)
+        self.effect_value.setPrefix("EE")
+        self.effect_value.setToolTip("Furnace EExx effect value to wait for")
+        controls.addWidget(QLabel("Effect"))
+        controls.addWidget(self.effect_value)
         b = QPushButton("Switch arrangement")
         b.clicked.connect(self.switch_arrangement)
         controls.addWidget(b)
@@ -1094,7 +1097,7 @@ class EditorWindow(QMainWindow):
                     9,
                     self.arrangement.currentIndex(),
                     (1, 8, 16)[self.boundary.currentIndex()],
-                    self.marker.value(),
+                    self.effect_value.value(),
                 ]
             )
 
@@ -1129,7 +1132,7 @@ class EditorWindow(QMainWindow):
         tempo_button.clicked.connect(
             lambda: self.command(
                 [16, (tempo.value() * 256 + 50) // 100,
-                 (1, 8, 16)[self.boundary.currentIndex()], self.marker.value()]
+                 (1, 8, 16)[self.boundary.currentIndex()], self.effect_value.value()]
             )
         )
         layout.addWidget(tempo_button)
@@ -1141,7 +1144,7 @@ class EditorWindow(QMainWindow):
                     14,
                     parts.value(),
                     (1, 8, 16)[self.boundary.currentIndex()],
-                    self.marker.value(),
+                    self.effect_value.value(),
                 ]
             )
         )

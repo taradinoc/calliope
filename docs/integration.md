@@ -195,12 +195,12 @@ PCM and chip writes can still be ahead of audible output. See
 [runtime-controls.md](runtime-controls.md) for tempo semantics and proposed telemetry APIs.
 
 
-`clp_setTempoScale(scale, boundary, marker)` changes the music clock relative
+`clp_setTempoScale(scale, boundary, effectValue)` changes the music clock relative
 to authored tempo (256 = normal, 128 = half, 512 = double):
 
 ```c
 clp_setTempoScale(384, CLP_NEXT_BAR, 0);                 /* 1.5x next bar */
-clp_setTempoScale(CLP_TEMPO_NORMAL, CLP_NEXT_MARKER, 2); /* normal at marker 2 */
+clp_setTempoScale(CLP_TEMPO_NORMAL, CLP_NEXT_EFFECT, 2); /* normal at Furnace EE02 */
 ```
 
 Tempo requests are independent of pending part/arrangement changes. The latest

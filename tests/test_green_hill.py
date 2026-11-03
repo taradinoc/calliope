@@ -9,7 +9,7 @@ from calliope.reference import Player
 class GreenHill(unittest.TestCase):
     def manifest(self,root,tone=False):
         voices=[{'name':str(i),'channel':i,'slot':slot} for i,slot in enumerate(('fm0','fm1','fm2','fm3','fm4','pcm','tone0','tone1','tone2','noise')) if i!=8 or tone]
-        path=Path(root)/'bank.json';path.write_text(json.dumps({'version':1,'songs':[{'id':5,'name':'ghz','source':str(ROOT/'examples/sonic_greenhillzone_annotated.fur'),'voices':voices,'groups':{'all':[v['name'] for v in voices]},'pcm_gain':.9,'external_commands':'passthrough'}]}));return path
+        path=Path(root)/'bank.json';path.write_text(json.dumps({'version':1,'songs':[{'id':5,'name':'ghz','source':str(ROOT/'examples/sonic_greenhillzone_annotated.fur'),'voices':voices,'groups':{'all':[v['name'] for v in voices]},'pcm_gain':.9}]}));return path
     def test_complete_song_regions_and_raw_cues(self):
         with tempfile.TemporaryDirectory() as tmp:
             path=self.manifest(tmp)

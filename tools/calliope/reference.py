@@ -85,7 +85,7 @@ class Player:
                 return
         raise FormatError("unknown song")
 
-    def set_parts(self, mask, boundary=1, marker=0):
+    def set_parts(self, mask, boundary=1, effect_value=0):
         if (
             not self.parts
             or not isinstance(mask, int)
@@ -96,7 +96,7 @@ class Player:
         slots = [v["slot"] for i, v in enumerate(self.parts) if mask & (1 << i)]
         if len(set(slots)) != len(slots):
             raise FormatError("conflicting parts")
-        if boundary not in (1, 8, 16):
+        if boundary not in (1, 8, 16) or (boundary == 16 and not 0 <= effect_value <= 255):
             raise FormatError("invalid boundary")
         self.selected = mask
         effective = sum(
@@ -104,23 +104,23 @@ class Player:
             for i, v in enumerate(self.parts)
             if mask & (1 << i) and not v["groups"] & self.groups
         )
-        self.pending_parts = (effective, boundary, marker)
+        self.pending_parts = (effective, boundary, effect_value)
         self.boundary(1)
 
-    def select_arrangement(self, index, boundary=1, marker=0):
+    def select_arrangement(self, index, boundary=1, effect_value=0):
         if not 0 <= index < len(self.arrangements):
             raise FormatError("invalid arrangement")
-        self.set_parts(self.arrangements[index], boundary, marker)
+        self.set_parts(self.arrangements[index], boundary, effect_value)
 
     def mute_groups(self, mask):
         self.groups = mask
         self.set_parts(self.selected)
 
-    def boundary(self, flags, marker=0):
+    def boundary(self, flags, effect_value=0):
         if self.pending_parts is None:
             return
         mask, requested, wanted = self.pending_parts
-        if not flags & requested or requested == 16 and marker != wanted:
+        if not flags & requested or requested == 16 and effect_value != wanted:
             return
         for i, v in enumerate(self.parts):
             enabled = bool(mask & (1 << i))
@@ -247,8 +247,8 @@ class Player:
                     self.trace.append((self.tick, op, ch, value))
             elif op == 0x15:
                 flags = self.read()
-                marker = self.read() | (self.read() << 8)
-                self.boundary(flags, marker)
+                effect_value = self.read() | (self.read() << 8)
+                self.boundary(flags, effect_value)
             elif op in (0x30, 0x35):
                 values = tuple(self.read() for _ in range(self.read()))
                 if self.audible():

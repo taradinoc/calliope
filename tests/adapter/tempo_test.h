@@ -11,9 +11,10 @@ static void tempo_api_tests(void)
 #else
     M[1]=M[2]=0;c=M+64;
 #endif
-    assert(clp_setTempoScale(384,CLP_NEXT_MARKER,0xfeed));
+    assert(!clp_setTempoScale(384,CLP_NEXT_EFFECT,256));
+    assert(clp_setTempoScale(384,CLP_NEXT_EFFECT,0xed));
     assert(c[0]==13 && c[1]==16 && c[2]==0x34 && c[3]==0x12);
-    assert(c[4]==0x80 && c[5]==1 && c[6]==0xed && c[7]==0xfe);
+    assert(c[4]==0x80 && c[5]==1 && c[6]==0xed && c[7]==0);
     assert(clp_setTempoScale(128,CLP_NEXT_BAR,0));
     assert(clp_setTempoScale(512,CLP_IMMEDIATE,0));
 #if CALLIOPE_HYBRID

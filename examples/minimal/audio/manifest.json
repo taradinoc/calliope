@@ -10,13 +10,7 @@
           "channel": "melody",
           "slot": "fm0"
         }
-      ],
-      "events": {
-        "1": {
-          "id": 7,
-          "parameter": 42
-        }
-      }
+      ]
     }
   ],
   "sfx": [
