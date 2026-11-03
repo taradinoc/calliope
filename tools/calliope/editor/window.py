@@ -56,6 +56,8 @@ def assets_path():
 
 
 class EditorWindow(QMainWindow):
+    RECENT_BANK_LIMIT = 10
+
     def __init__(self):
         super().__init__()
         self.resize(1280, 880)
@@ -287,6 +289,9 @@ class EditorWindow(QMainWindow):
             ("Exit", "Ctrl+Q", self.close),
         ]:
             action(file, name, key, callback)
+            if name == "Open…":
+                self.recent_menu = file.addMenu("Open &Recent")
+                self.refresh_recent_menu()
         action(edit, "Undo", "Ctrl+Z", lambda: self.history(-1))
         action(edit, "Redo", "Ctrl+Shift+Z", lambda: self.history(1))
         action(build, "Validate", "F6", lambda: self.start_job("validate"))
@@ -470,10 +475,35 @@ class EditorWindow(QMainWindow):
         if path:
             self.open_path(Path(path))
 
+    def recent_banks(self):
+        return self.settings.value("recent_banks", [], type=list)
+
+    def refresh_recent_menu(self):
+        self.recent_menu.clear()
+        paths = self.recent_banks()
+        self.recent_menu.setEnabled(bool(paths))
+        for index, path in enumerate(paths[:self.RECENT_BANK_LIMIT], 1):
+            action = self.recent_menu.addAction(f"&{index} {path.replace('&', '&&')}")
+            action.triggered.connect(lambda checked=False, p=path: self.open_path(Path(p)))
+        if paths:
+            self.recent_menu.addSeparator()
+            self.recent_menu.addAction("Clear recent banks", self.clear_recent_banks)
+
+    def clear_recent_banks(self):
+        self.settings.remove("recent_banks")
+        self.refresh_recent_menu()
+
+    def remember_bank(self, path):
+        path = str(Path(path).resolve())
+        paths = [p for p in self.recent_banks() if os.path.normcase(p) != os.path.normcase(path)]
+        self.settings.setValue("recent_banks", [path] + paths[:self.RECENT_BANK_LIMIT - 1])
+        self.refresh_recent_menu()
+
     def open_path(self, path):
         if not self.may_close():
             return
         try:
+            path = Path(path).resolve()
             value = json.loads(path.read_text(encoding="utf-8"))
             if not isinstance(value, dict) or any(
                 not isinstance(value.get(c, []), list)
@@ -487,6 +517,7 @@ class EditorWindow(QMainWindow):
             self.settings.setValue("last_dir", str(path.parent))
             self.rebuild()
             self.check_sources()
+            self.remember_bank(path)
         except (ValueError, OSError) as e:
             QMessageBox.warning(self, "Open failed", str(e))
 
@@ -506,6 +537,7 @@ class EditorWindow(QMainWindow):
             path = Path(name)
         try:
             self.document.save(path)
+            self.remember_bank(path)
             self.rebuild()
             return True
         except (ValueError, OSError) as e:
@@ -531,7 +563,7 @@ class EditorWindow(QMainWindow):
                 id=n,
                 name=name,
                 source="",
-                **({"voices": []} if cat == "songs" else {"priority": 1}),
+                **({} if cat == "songs" else {"priority": 1}),
             )
         )
         self.replace(data, (cat, len(entries) - 1))
@@ -636,11 +668,15 @@ class EditorWindow(QMainWindow):
             )
             return
         if target[0] == "suggest":
-            suggestions = result.get("voice_suggestions", [])
+            defaults = result.get("voice_suggestions", [])
+            suggestions = copy.deepcopy(defaults)
             if self.review("Review voice mappings", suggestions):
                 cat, index = target[1]
                 data = copy.deepcopy(self.document.data)
-                data[cat][index]["voices"] = suggestions
+                if suggestions == defaults:
+                    data[cat][index].pop("voices", None)
+                else:
+                    data[cat][index]["voices"] = suggestions
                 self.replace(data, (cat, index))
             return
         path, cat = target[1:]
@@ -648,8 +684,6 @@ class EditorWindow(QMainWindow):
         entry = copy.deepcopy(self.entry())
         entry["source"] = self.relative(path)
         # Keep generated valid identifiers; the source title is visible in inspection.
-        if cat == "songs":
-            entry["voices"] = result.get("voice_suggestions", [])
         if self.review("Review imported bank entry", entry):
             data = copy.deepcopy(self.document.data)
             category, index = self.selection()
@@ -702,7 +736,7 @@ class EditorWindow(QMainWindow):
         accepted = dialog.exec() == QDialog.DialogCode.Accepted
         if accepted:
             if voices_only:
-                value[:] = copy.deepcopy(form.value.get("voices", []))
+                value[:] = copy.deepcopy(form.effective_voices())
             else:
                 value.clear()
                 value.update(copy.deepcopy(form.value))

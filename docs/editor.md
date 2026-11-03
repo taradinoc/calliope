@@ -4,6 +4,10 @@ The editor opens and saves version-1 JSON bank manifests. Furnace and WAV files
 are read-only inputs. It uses the same converter as `clpconvert.py`; successful
 parsing alone does not establish compatibility.
 
+File > Open Recent lists the ten most recently opened or saved banks, newest
+first. The list persists across sessions. Clear recent banks removes the list.
+Opening a recent bank uses the usual unsaved-changes prompt.
+
 ## Run from source
 
 Use Python 3.10 or newer:
@@ -33,10 +37,19 @@ the bank root is selected. Unknown fields are preserved. The Bank JSON tab remai
 available for advanced edits; Apply JSON commits it to the same undo history.
 
 Select Music or Sound effects before importing a Furnace file. WAV imports are
-always SFX. Import proposes mappings for review; it does not modify Furnace
+always SFX. Import proposes a bank entry for review; it does not modify Furnace
 channels or assign meaning to EE commands. Use the Read-only source tab to
 inspect metadata and pattern cells, relink a missing file, or review newly
 suggested mappings. Source channel, order, pattern, and row indices are zero based.
+
+Songs can omit `voices`. Active source channels then use their native Genesis
+destinations: FM 1–5, PSG tones 1–3, PSG noise, and FM 6 as PCM. The Channels tab
+shows this default without adding it to the bank JSON. Editing a channel mapping
+creates an explicit `voices` override; Use default mapping removes that override.
+New and imported songs use the default. Existing explicit mappings remain intact.
+Default voice names use Furnace channel names, or `voice_1`, `voice_2`, etc. for
+unnamed channels; duplicate names receive numeric suffixes. Groups, arrangements,
+and generated part IDs can use these names. Explicit `voices: []` remains invalid.
 
 Save As rebases relative resource paths. Unknown JSON fields and meaningful
 object order are retained, including arrangement/group order used by generated

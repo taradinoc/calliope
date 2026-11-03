@@ -5,12 +5,6 @@
       "id": 1,
       "name": "melody",
       "source": "melody232.fur",
-      "voices": [
-        {
-          "channel": "melody",
-          "slot": "fm0"
-        }
-      ],
       "events": {
         "1": {
           "id": 7,
@@ -22,29 +16,7 @@
       "id": 2,
       "name": "elevator",
       "source": "elevator.fur",
-      "loop_order": 0,
-      "voices": [
-        {
-          "channel": 0,
-          "slot": "fm0"
-        },
-        {
-          "channel": 1,
-          "slot": "fm1"
-        },
-        {
-          "channel": 5,
-          "slot": "pcm"
-        },
-        {
-          "channel": 6,
-          "slot": "tone0"
-        },
-        {
-          "channel": 7,
-          "slot": "tone1"
-        }
-      ]
+      "loop_order": 0
     },
     {
       "id": 3,
@@ -106,12 +78,6 @@
       "id": 4,
       "name": "noise_music",
       "source": "noise232.fur",
-      "voices": [
-        {
-          "channel": 3,
-          "slot": "noise"
-        }
-      ],
       "loop_order": 0
     },
     {

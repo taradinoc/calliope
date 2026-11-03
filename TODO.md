@@ -1,2 +1,0 @@
-- Bank channel mapping should be omitted by default and generated implicitly
-    - Most songs will have a simple, obvious mapping

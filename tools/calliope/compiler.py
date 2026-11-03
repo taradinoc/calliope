@@ -195,6 +195,28 @@ def used_channels(module, sub):
     ]
 
 
+def default_voices(module, sub=0):
+    """Map active source channels to their native Genesis destinations."""
+    voices = []
+    names = set()
+    for ch in used_channels(module, sub):
+        _, kind, slot = module.channels[ch]
+        destination = (
+            "pcm" if kind == "fm" and slot == 5
+            else "noise" if kind == "noise"
+            else ("fm" if kind == "fm" else "tone") + str(slot)
+        )
+        name = module.subsongs[sub].names[ch] or f"voice_{ch+1}"
+        base = name
+        suffix = 2
+        while re.sub("[^A-Z0-9_]", "_", name.upper()) in names:
+            name = f"{base}_{suffix}"
+            suffix += 1
+        names.add(re.sub("[^A-Z0-9_]", "_", name.upper()))
+        voices.append(dict(name=name, channel=ch, slot=destination))
+    return voices
+
+
 def infer_sfx(module, sub=0):
     active = used_channels(module, sub)
     s = module.subsongs[sub]
@@ -380,6 +402,7 @@ def compile_bank(
         path = Path(manifest).resolve()
         m = load_manifest(path)
         dependencies = [str(path)]
+    header_manifest = dict(m, songs=[])
     pack = Packer()
     patches = []
     songs = []
@@ -619,6 +642,10 @@ def compile_bank(
             loop_timing = None
             if abs(module.tuning - 440) > 0.001:
                 raise FormatError("runtime requires A4=440 Hz")
+            if category == "songs":
+                if "voices" not in item:
+                    item = dict(item, voices=default_voices(module, sub))
+                header_manifest["songs"].append(item)
             voices = item.get("voices", [])
             if not 1 <= len(voices) <= 16:
                 raise FormatError("expected 1..16 logical voices")
@@ -1877,4 +1904,4 @@ def compile_bank(
         "dependencies": sorted(set(dependencies)),
         "rows": debug,
     }
-    return bytes(pack.data), report, ids_header(m)
+    return bytes(pack.data), report, ids_header(header_manifest)

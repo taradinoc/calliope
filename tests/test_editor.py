@@ -48,6 +48,36 @@ class CpuLoad(unittest.TestCase):
 
 
 class EditorServices(unittest.TestCase):
+    def test_implicit_mapping_matches_explicit_mapping_without_mutating_bank(self):
+        from calliope.compiler import default_voices
+        from calliope.furnace import parse, FormatError
+        for source in ('melody232.fur', 'elevator.fur', 'noise232.fur'):
+            song = dict(id=1, name='song', source=source, external_commands='passthrough')
+            doc = dict(version=1, songs=[song])
+            original = copy.deepcopy(doc)
+            implicit = compile_document(doc, ROOT/'examples')
+            self.assertEqual(doc, original)
+            song['voices'] = default_voices(parse(ROOT/'examples'/source))
+            self.assertEqual(implicit, compile_document(doc, ROOT/'examples'))
+            self.assertIn('#define CLP_PART_SONG_', implicit[2])
+            song['voices'] = []
+            with self.assertRaisesRegex(FormatError, 'expected 1..16 logical voices'):
+                compile_document(doc, ROOT/'examples')
+
+    def test_implicit_mapping_supports_groups_and_distinct_part_names(self):
+        from calliope.compiler import default_voices
+        from calliope.furnace import parse
+        module = parse(ROOT/'examples/elevator.fur')
+        module.subsongs[0].names = ['same'] * len(module.channels)
+        voices = default_voices(module)
+        self.assertEqual(len({v['name'] for v in voices}), len(voices))
+        self.assertIn('pcm', [v['slot'] for v in voices])
+        song = dict(id=1, name='song', source='elevator.fur')
+        names = [v['name'] for v in default_voices(parse(ROOT/'examples/elevator.fur'))]
+        song['groups'] = {'all': names}
+        doc = dict(version=1, songs=[song])
+        self.assertEqual(validate_document(doc, ROOT/'examples'), [])
+
     def test_hybrid_resident_patch_capacity(self):
         from unittest.mock import patch
         from clpconvert import FormatError

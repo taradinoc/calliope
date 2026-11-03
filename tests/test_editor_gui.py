@@ -3,7 +3,9 @@ import json
 import os
 from pathlib import Path
 import sys
+import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'tools'))
@@ -20,7 +22,15 @@ class EditorGui(unittest.TestCase):
     @classmethod
     def setUpClass(cls):cls.app=QApplication.instance() or QApplication([])
 
-    def setUp(self):self.window=EditorWindow()
+    def setUp(self):
+        from PySide6.QtCore import QSettings
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.settings = QSettings(str(Path(self.directory.name)/'settings.ini'), QSettings.Format.IniFormat)
+        setting_patch = patch('calliope.editor.window.QSettings', return_value=self.settings)
+        setting_patch.start()
+        self.addCleanup(setting_patch.stop)
+        self.window=EditorWindow()
 
     def tearDown(self):
         self.window.document.saved=self.window.document.data
@@ -40,6 +50,68 @@ class EditorGui(unittest.TestCase):
         self.assertNotEqual(table.item(0, 7).text(), table.item(1, 7).text())
         self.window.show_sample_sharing({'music_samples': []})
         self.assertEqual(table.rowCount(), 0)
+
+    def test_default_mapping_is_displayed_but_saved_only_when_customized(self):
+        self.window.document.base_dir = ROOT/'examples'
+        song = dict(id=1, name='song', source='elevator.fur')
+        self.window.replace(dict(version=1, songs=[song]))
+        self.window.browser.setCurrentItem(self.window.browser.topLevelItem(0).child(0).child(0))
+        form = self.window.properties
+        self.assertGreater(form.voice_table.rowCount(), 0)
+        form.voice_table.cellWidget(0, 0).editingFinished.emit()
+        form.move_list('voices', 0, -1)
+        self.assertNotIn('voices', self.window.document.data['songs'][0])
+        path = Path(self.directory.name)/'bank.json'
+        self.window.document.save(path)
+        self.assertNotIn('voices', json.loads(path.read_text())['songs'][0])
+        form.voice_table.cellWidget(0, 2).setCurrentIndex(1)
+        self.assertEqual(self.window.document.data['songs'][0]['voices'][0]['slot'], 'fm1')
+        form.reset_voices()
+        self.assertNotIn('voices', self.window.document.data['songs'][0])
+        self.window.history(-1)
+        self.assertEqual(self.window.document.data['songs'][0]['voices'][0]['slot'], 'fm1')
+
+    def test_recent_menu_tracks_successful_opens_and_survives_restart(self):
+        root = Path(self.directory.name)
+        paths = [root/f'bank-{n}.json' for n in range(12)]
+        self.assertFalse(self.window.recent_menu.isEnabled())
+        for path in paths:
+            path.write_text('{"version":1}', encoding='utf-8')
+            self.window.open_path(path)
+        self.assertEqual(len(self.window.recent_banks()), 10)
+        self.window.open_path(paths[3])
+        self.assertEqual(self.window.recent_banks()[0], str(paths[3].resolve()))
+        self.assertEqual(len(set(self.window.recent_banks())), 10)
+        self.window.recent_menu.actions()[1].trigger()
+        self.assertEqual(self.window.document.path, paths[11].resolve())
+        with patch.object(self.window, 'may_close', return_value=False):
+            self.window.open_path(paths[2])
+        self.assertEqual(self.window.document.path, paths[11].resolve())
+        with patch('calliope.editor.window.QMessageBox.warning') as warning:
+            self.window.open_path(root/'missing.json')
+            warning.assert_called_once()
+        self.assertNotIn(str(root/'missing.json'), self.window.recent_banks())
+        self.window.document.path = root/'saved.json'
+        self.assertTrue(self.window.save())
+        self.assertEqual(self.window.recent_banks()[0], str((root/'saved.json').resolve()))
+        self.settings.sync()
+        other = EditorWindow()
+        try:
+            self.assertEqual(other.recent_banks(), self.window.recent_banks())
+            self.assertTrue(other.recent_menu.isEnabled())
+            other.clear_recent_banks()
+            self.assertFalse(other.recent_menu.isEnabled())
+        finally:
+            other.close()
+
+    def test_accepting_suggested_default_mapping_removes_override(self):
+        song = dict(id=1, name='song', source='missing.fur', voices=[dict(channel=1, slot='fm0')])
+        self.window.replace(dict(version=1, songs=[song]))
+        defaults = [dict(name='lead', channel=0, slot='fm0')]
+        with patch.object(self.window, 'review', return_value=True):
+            self.window.review_import({'voice_suggestions': defaults}, ('suggest', ('songs', 0), None))
+        self.assertNotIn('voices', self.window.document.data['songs'][0])
+
 
     def test_cpu_load_display_and_stop(self):
         status = dict(owners=[0]*9, effects=[], pcm_owner=0, tick=0,

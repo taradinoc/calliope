@@ -8,7 +8,7 @@ import json
 import re
 import base64
 import sys
-from ..compiler import compile_bank, infer_sfx, used_channels, validate_manifest
+from ..compiler import compile_bank, default_voices, infer_sfx, used_channels, validate_manifest
 from ..furnace import FormatError, parse
 from ..pcm import convert, conversion_cache, decode
 
@@ -161,21 +161,7 @@ def inspect_source(path, region="ntsc", mode="z80", subsong=0, gain=1, loop=None
         result["sfx_suggestion"] = {"kind": kind, "channels": channels}
     except FormatError as e:
         result["sfx_suggestion"] = {"error": str(e)}
-    sub = module.subsongs[subsong]
-    slots = {"fm": "fm", "psg": "tone", "noise": "noise"}
-    result["voice_suggestions"] = [
-        dict(
-            name=sub.names[ch] or f"voice_{ch}",
-            channel=ch,
-            slot=(
-                "pcm"
-                if kind == "fm" and slot == 5
-                else "noise" if kind == "noise" else slots[kind] + str(slot)
-            ),
-        )
-        for ch in used_channels(module, subsong)
-        for _, kind, slot in [module.channels[ch]]
-    ]
+    result["voice_suggestions"] = default_voices(module, subsong)
     return json_value(result)
 
 

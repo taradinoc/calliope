@@ -4,7 +4,9 @@ This is the implemented BGM1-5 subset. The exact DAC timing acceptance gate rema
 
 ## Authoring
 
-Each entry in `voices` maps one monophonic Furnace source channel to a physical slot. With groups, arrangements or shared slots, every entry needs a unique nonempty `name`. Channel selectors may use a unique Furnace channel name or an explicit channel index. Extra chip instances provide source channels; they do not imply extra runtime chips.
+Songs may omit `voices` to map active Furnace channels to their native Genesis slots (FM 6 uses PCM). Defaults follow source channel order and use source channel names, falling back to `voice_1`, `voice_2`, etc.; duplicate generated names receive numeric suffixes. Groups and arrangements can refer to these default names. Shared slots still require arrangements with distinct destinations.
+
+An explicit `voices` list overrides the default. Each entry maps one monophonic Furnace source channel to a physical slot. With groups, arrangements or shared slots, every entry needs a unique nonempty `name`. Channel selectors may use a unique Furnace channel name or an explicit channel index. Extra chip instances provide source channels; they do not imply extra runtime chips.
 
 ```json
 {

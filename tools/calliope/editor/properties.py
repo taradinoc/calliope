@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
 )
 from ..furnace import parse, FormatError
-from ..compiler import used_channels, infer_sfx
+from ..compiler import default_voices, used_channels, infer_sfx
 from .document import clean_optional_collections
 
 SLOTS = [
@@ -98,6 +98,10 @@ class Properties(QWidget):
                 self.module = SOURCE_CACHE[key]
             except (OSError, ValueError, FormatError) as e:
                 self.source_problem = str(e)
+        self.default_voice_mapping = (
+            default_voices(self.module, self.module.subsongs.index(self.sub()))
+            if self.module and category == "songs" else []
+        )
         general = self.page("General")
         form = QFormLayout()
         general.addLayout(form)
@@ -423,9 +427,10 @@ class Properties(QWidget):
         layout = self.page("Channels")
         self.hint(
             layout,
-            "Map each used Furnace channel to a Genesis channel. Voice names identify parts in groups and arrangements. FM channel 6 is reserved for PCM.",
+            "Active Furnace channels use their native Genesis destinations by default. Edit a mapping to customize it. Voice names identify parts in groups and arrangements. FM channel 6 is reserved for PCM.",
         )
-        voices = self.value.get("voices", [])
+        self.hint(layout, "Using default mapping" if "voices" not in self.value else "Using custom mapping")
+        voices = self.effective_voices()
         voices = voices if isinstance(voices, list) else []
         table = self.table(
             layout,
@@ -481,14 +486,34 @@ class Properties(QWidget):
                 ("Remove voice", lambda: self.remove_voice(table.currentRow())),
                 ("Move up", lambda: self.move_list("voices", table.currentRow(), -1)),
                 ("Move down", lambda: self.move_list("voices", table.currentRow(), 1)),
+                ("Use default mapping", self.reset_voices),
             ],
         )
 
+    def effective_voices(self):
+        if "voices" in self.value:
+            return self.value["voices"]
+        return self.default_voice_mapping
+
+    def customize_voices(self):
+        if "voices" not in self.value:
+            self.value["voices"] = copy.deepcopy(self.effective_voices())
+
+    def reset_voices(self):
+        self.value.pop("voices", None)
+        self.publish(True)
+
     def voice_field(self, index, key, value):
+        if self.effective_voices()[index].get(key) == value:
+            return
+        self.customize_voices()
         self.value["voices"][index][key] = value
-        self.publish()
+        self.publish(True)
 
     def rename_voice(self, index, name):
+        if self.effective_voices()[index].get("name", "") == name:
+            return
+        self.customize_voices()
         old = self.value["voices"][index].get("name")
         self.value["voices"][index]["name"] = name
         if old:
@@ -501,9 +526,10 @@ class Properties(QWidget):
         self.publish(True)
 
     def add_voice(self):
-        voices = self.value.setdefault("voices", [])
-        if len(voices) >= 16:
+        if len(self.effective_voices()) >= 16:
             return
+        self.customize_voices()
+        voices = self.value["voices"]
         used = {v.get("channel") for v in voices if isinstance(v, dict)}
         channel = next((i for _, i in self.channels() if i not in used), 0)
         slot = "fm0"
@@ -524,6 +550,7 @@ class Properties(QWidget):
     def remove_voice(self, index):
         if index < 0:
             return
+        self.customize_voices()
         name = self.value["voices"].pop(index).get("name")
         for key in ("groups", "arrangements"):
             if isinstance(self.value.get(key), dict):
@@ -533,9 +560,12 @@ class Properties(QWidget):
         self.publish(True)
 
     def move_list(self, key, index, delta):
-        values = self.value.get(key, [])
+        values = self.effective_voices() if key == "voices" else self.value.get(key, [])
         other = index + delta
         if 0 <= index < len(values) and 0 <= other < len(values):
+            if key == "voices":
+                self.customize_voices()
+                values = self.value["voices"]
             values[index], values[other] = values[other], values[index]
             self.publish(True)
 
@@ -547,7 +577,7 @@ class Properties(QWidget):
         )
         voices = [
             v.get("name")
-            for v in self.value.get("voices", [])
+            for v in self.effective_voices()
             if isinstance(v, dict) and v.get("name")
         ]
         for key, title in [
@@ -624,7 +654,7 @@ class Properties(QWidget):
         self.publish()
 
     def add_member(self, key):
-        for index, voice in enumerate(self.value.get("voices", [])):
+        for index, voice in enumerate(self.effective_voices()):
             if isinstance(voice, dict) and not voice.get("name"):
                 voice["name"] = f"voice_{index+1}"
         mapping = self.value.setdefault(key, {})
