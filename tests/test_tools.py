@@ -93,6 +93,28 @@ class Fixture(unittest.TestCase):
         path=self.manifest()
         data,_,_=compile_bank(path);player=Player(data);player.start(4);player.step()
         self.assertEqual(player.events,[(1,1,1,0)])
+
+    def test_duplicate_source_channel_names_resource_voices_and_editor_channel(self):
+        for first, second in ((0, 0), ('melody', 0), (0, 'melody')):
+            path = self.manifest(voices=[
+                {'channel': first, 'slot': 'fm0', 'name': 'lead'},
+                {'channel': second, 'slot': 'fm3', 'name': 'alternate'},
+            ])
+            with self.subTest(first=first, second=second), self.assertRaises(FormatError) as raised:
+                compile_bank(path)
+            message = str(raised.exception)
+            for detail in ("Song 'test'", 'ID 4', 'song.fur', 'duplicate source channel 0',
+                           'zero-based JSON index', '1 · FM 1 — melody',
+                           "Channels rows 1 ('lead', destination fm0)", "and 2 ('alternate', destination fm3)",
+                           'Choose a different source channel for each voice'):
+                self.assertIn(detail, message)
+
+    def test_duplicate_unnamed_source_voices_show_both_rows(self):
+        path = self.manifest(voices=[{'channel': 0, 'slot': 'fm0'}, {'channel': 0, 'slot': 'fm1'}])
+        with self.assertRaises(FormatError) as raised:
+            compile_bank(path)
+        self.assertIn("Channels rows 1 ('unnamed voice', destination fm0)", str(raised.exception))
+        self.assertIn("and 2 ('unnamed voice', destination fm1)", str(raised.exception))
     def test_psg_sfx_release_envelope(self):
         from calliope.psg import compile_tone
         from calliope.macros import sequences

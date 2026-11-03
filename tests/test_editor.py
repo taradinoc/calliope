@@ -48,6 +48,24 @@ class CpuLoad(unittest.TestCase):
 
 
 class EditorServices(unittest.TestCase):
+    def test_duplicate_channel_diagnostic_identifies_song_and_displayed_channel(self):
+        document = {'version': 1, 'songs': [
+            {'id': 1, 'name': 'valid', 'source': 'melody232.fur'},
+            {'id': 2, 'name': 'conflicting', 'source': 'melody232.fur', 'voices': [
+                {'channel': 0, 'slot': 'fm0', 'name': 'lead'},
+                {'channel': 'melody', 'slot': 'fm3', 'name': 'alternate'},
+            ]},
+        ]}
+        diagnostics = validate_document(document, ROOT/'examples')
+        self.assertEqual(len(diagnostics), 1)
+        error = diagnostics[0]
+        self.assertEqual(error['resource'], 'conflicting')
+        self.assertEqual(error['channel'], 0)
+        self.assertIsNone(error['row'])  # Voice-table rows are not source-pattern rows.
+        self.assertIn("Song 'conflicting'", error['message'])
+        self.assertIn('1 · FM 1 — melody', error['message'])
+        self.assertIn("Channels rows 1 ('lead', destination fm0) and 2 ('alternate', destination fm3)", error['message'])
+
     def test_implicit_mapping_matches_explicit_mapping_without_mutating_bank(self):
         from calliope.compiler import default_voices
         from calliope.furnace import parse, FormatError

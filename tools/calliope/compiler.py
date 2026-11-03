@@ -660,8 +660,9 @@ def compile_bank(
             if not 1 <= len(voices) <= 16:
                 raise FormatError("expected 1..16 logical voices")
             mapping = {}
+            source_voices = {}
             slots = set()
-            for voice in voices:
+            for voice_index, voice in enumerate(voices):
                 select = voice["channel"]
                 if isinstance(select, str):
                     matches = [i for i, name in enumerate(s.names) if name == select]
@@ -682,8 +683,23 @@ def compile_bank(
                 ):
                     raise FormatError("unsupported source/slot mapping")
                 if ch in mapping:
-                    raise FormatError("duplicate source channel")
+                    previous_index, previous_voice = source_voices[ch]
+                    channel_label = f"{ch + 1} · {kind.upper()} {module.channels[ch][2] + 1}"
+                    if s.names[ch]:
+                        channel_label += " — " + s.names[ch]
+                    raise FormatError(
+                        f"Song {item['name']!r} (ID {item['id']}, {item['source']}): "
+                        f"duplicate source channel {ch} (zero-based JSON index; "
+                        f"editor label: {channel_label!r}). "
+                        f"Channels rows {previous_index + 1} "
+                        f"({previous_voice.get('name') or 'unnamed voice'!r}, destination {previous_voice['slot']}) "
+                        f"and {voice_index + 1} "
+                        f"({voice.get('name') or 'unnamed voice'!r}, destination {voice['slot']}) "
+                        "both select this Furnace channel. "
+                        "Choose a different source channel for each voice."
+                    )
                 mapping[ch] = slot
+                source_voices[ch] = (voice_index, voice)
                 slots.add(slot)
             part_data, arrangements, initial_arrangement = parts_layout(
                 item, list(mapping.values())
