@@ -675,18 +675,27 @@ def compile_bank(
                     ch = integer(select, 0, len(module.channels) - 1, "channel")
                 slot = SLOTS.get(voice["slot"], -1)
                 kind = module.channels[ch][1]
+                channel_label = f"{ch + 1} · {kind.upper()} {module.channels[ch][2] + 1}"
+                if s.names[ch]:
+                    channel_label += " — " + s.names[ch]
                 if not (
                     (0 <= slot <= 4 and kind == "fm")
                     or (5 <= slot <= 7 and kind == "psg")
                     or (slot == 8 and kind == "noise")
                     or (slot == 9 and kind == "fm" and module.channels[ch][2] == 5)
                 ):
-                    raise FormatError("unsupported source/slot mapping")
+                    resource = "Song" if category == "songs" else "SFX"
+                    raise FormatError(
+                        f"{resource} {item['name']!r} (ID {item['id']}, {item['source']}): "
+                        f"unsupported source/slot mapping in Channels row {voice_index + 1} "
+                        f"({voice.get('name') or 'unnamed voice'!r}): "
+                        f"source channel {ch} (zero-based JSON index; "
+                        f"editor label: {channel_label!r}) -> destination {voice['slot']!r}. "
+                        "Supported destinations: fm0..fm4 for FM, tone0..tone2 for PSG, "
+                        "noise for noise, and pcm for source FM6 (channel index 5 within its chip)."
+                    )
                 if ch in mapping:
                     previous_index, previous_voice = source_voices[ch]
-                    channel_label = f"{ch + 1} · {kind.upper()} {module.channels[ch][2] + 1}"
-                    if s.names[ch]:
-                        channel_label += " — " + s.names[ch]
                     raise FormatError(
                         f"Song {item['name']!r} (ID {item['id']}, {item['source']}): "
                         f"duplicate source channel {ch} (zero-based JSON index; "

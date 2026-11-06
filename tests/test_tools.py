@@ -109,6 +109,26 @@ class Fixture(unittest.TestCase):
                            'Choose a different source channel for each voice'):
                 self.assertIn(detail, message)
 
+    def test_invalid_source_slot_mapping_names_song_and_mapping(self):
+        for channel, slot in ((0, 'fm5'), ('melody', 'tone0'), (0, 'pcm')):
+            path = self.manifest(voices=[{'channel': channel, 'slot': slot, 'name': 'lead'}])
+            with self.subTest(channel=channel, slot=slot), self.assertRaises(FormatError) as raised:
+                compile_bank(path)
+            message = str(raised.exception)
+            for detail in ("Song 'test'", 'ID 4', 'song.fur',
+                           "unsupported source/slot mapping in Channels row 1 ('lead')",
+                           'source channel 0 (zero-based JSON index', '1 · FM 1 — melody',
+                           f"destination {slot!r}", 'Supported destinations: fm0..fm4'):
+                self.assertIn(detail, message)
+
+    def test_invalid_source_slot_mapping_shows_row_and_unnamed_channel(self):
+        path = self.manifest(voices=[{'channel': 0, 'slot': 'fm0'}, {'channel': 1, 'slot': 'noise'}])
+        with self.assertRaises(FormatError) as raised:
+            compile_bank(path)
+        for detail in ("Channels row 2 ('unnamed voice')", 'source channel 1',
+                       "editor label: '2 · FM 2'", "destination 'noise'"):
+            self.assertIn(detail, str(raised.exception))
+
     def test_duplicate_unnamed_source_voices_show_both_rows(self):
         path = self.manifest(voices=[{'channel': 0, 'slot': 'fm0'}, {'channel': 0, 'slot': 'fm1'}])
         with self.assertRaises(FormatError) as raised:

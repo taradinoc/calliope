@@ -2,6 +2,14 @@
 
 This describes implemented behavior, not the entire accepted feature list. Unsupported used effects fail conversion. The strict DAC clock gate remains open.
 
+## Invalid song mappings
+
+An unsupported source/slot mapping error identifies the song name, ID, source
+file, Channels row and voice name, source channel index and editor label, and
+requested destination. It also lists the supported channel/slot combinations.
+Source indices in JSON are zero-based; editor channel labels are one-based.
+FM destinations are `fm0` through `fm4`; source FM6 can use `pcm`, not `fm5`.
+
 ## Additional consumer formats
 
 Furnace 156 PATR patterns are supported alongside 232 and 248, within the
