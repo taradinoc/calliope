@@ -459,6 +459,7 @@ static void elapsed_position(void)
 }
 #include "tempo_test.h"
 #include "start_generation_test.h"
+#include "music_state_test.h"
 static void resident_patch_limits(void)
 {
     u8 bank[32] = {0};
@@ -487,6 +488,7 @@ int main(int argc,char **argv)
     assert(argc==2);elapsed_position();tempo_controls();operator_masks();ownership();immediate_parts();multi_psg();multi_fm();tone_groups();lfo();panning();pcm();pcmPriorities();packets();events_and_limits();music_silence();authored_bank(argv[1]);
     tempo_api_tests();
     start_generation_tests();
+    music_state_tests();
     effect_index_tests();
     sfx_active_query();
     assert(!owned && !disabled);puts("hybrid sequencing, ownership, PCM, events and authored-bank checks passed");return 0;

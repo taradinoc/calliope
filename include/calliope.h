@@ -71,6 +71,12 @@ bool clp_playPcm(u16 effect, u8 source, u8 priority, u16 token);
 /* Consume at most four records; stale generations are discarded within that budget. */
 u16 clp_poll(ClpEvent *events, u16 capacity);
 ClpStatus clp_status(void);
+/* Fault/completion flags for one start generation; zero before initialization.
+   Completion requires both current and completed generation to match, and a
+   nonzero requested generation. Pure Z80 uses one bus acquisition and reads
+   only fault/completion bytes until completion is published. No state resets. */
+enum { CLP_MUSIC_FAULT = 1, CLP_MUSIC_COMPLETED = 2 };
+u8 clp_musicState(u16 generation);
 /* Music ticks since consumed start; pauses freeze, loops continue, u32 wraps.
    Tick duration follows authored tempo. Hybrid reports the last consumed page header.
    Before initialization: zero. Queued start/stop do not take effect immediately. */

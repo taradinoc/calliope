@@ -29,6 +29,7 @@ static void event(u8 counter,u16 gen,u16 id) {
 #include "effect_index_test.h"
 #include "tempo_test.h"
 #include "start_generation_test.h"
+#include "music_state_test.h"
 int main(void) {
     ClpEvent result[5]; ClpStatus status; int before;
     assert(!clp_sfxActive(0x4001));
@@ -110,6 +111,7 @@ int main(void) {
     owned=true;before=releases;assert(!clp_sfxActive(0x4001) && owned && releases==before);owned=false;
     tempo_api_tests();
     start_generation_tests();
+    music_state_tests();
     effect_index_tests();
     assert(!owned && !disabled); puts("adapter mailbox checks passed"); return 0;
 }

@@ -212,3 +212,19 @@ lookahead delay. See [runtime controls](runtime-controls.md) for the full contra
 
 See [incremental builds](incremental-build.md) for dependency tracking and migration
 from a direct SGDK include. Calliope's SGDK wrapper leaves the installed SDK unchanged.
+
+
+### Lightweight game music state
+
+`clp_musicState(generation)` reports `CLP_MUSIC_FAULT` and
+`CLP_MUSIC_COMPLETED`. Completion has the same current-generation, completion
+flag and completed-generation checks as `clp_status()`. Generation zero never
+reports completion. Before initialization it returns zero.
+
+Pure Z80 mode acquires the bus once and normally reads only the fault and
+completion bytes. It reads generation bytes only when completion is published.
+Hybrid mode retains its existing coherent consumed-status snapshot. The full
+`clp_status()` API remains available for diagnostics; the new query changes no
+sequencer, PCM or command timing. Adapter tests compare750 mailbox states under
+both bus-ownership conditions in each mode, including byte/word generation
+boundaries and stale completions.

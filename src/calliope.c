@@ -378,3 +378,32 @@ u32 clp_getElapsed(void)
     return elapsedTick;
 }
 #endif
+
+
+/* A game normally needs fault/completion, not the complete diagnostic snapshot. */
+u8 clp_musicState(u16 generation)
+{
+    u8 result;
+    if (!bankData) return 0;
+#if CALLIOPE_HYBRID
+    {
+        ClpStatus status = clp_status();
+        result = status.fault ? CLP_MUSIC_FAULT : 0;
+        if (generation && status.generation == generation && status.completed && status.completedGeneration == generation)
+            result |= CLP_MUSIC_COMPLETED;
+    }
+#else
+    {
+        bool taken;
+        SYS_disableInts();
+        taken = Z80_getAndRequestBus(TRUE);
+        result = M[5] ? CLP_MUSIC_FAULT : 0;
+        if (generation && M[22] && M[8] == (u8)generation && M[9] == (u8)(generation >> 8) &&
+            M[20] == (u8)generation && M[21] == (u8)(generation >> 8))
+            result |= CLP_MUSIC_COMPLETED;
+        if (!taken) Z80_releaseBus();
+        SYS_enableInts();
+    }
+#endif
+    return result;
+}
