@@ -37,10 +37,16 @@ class Sequence:
     instant_release: bool
 
 
-def sequences(instrument, allowed=(0, 1, 4), kind=0):
+def sequences(instrument, allowed=(0, 1, 4), kind=0, fixed_arp=False):
     if instrument is None:
         return {}
-    if instrument["kind"] != kind or set(instrument["features"]) - (
+    features = dict(instrument["features"])
+    if kind == 0:
+        if len(features.get("SM", b"")) == 4 and features["SM"][2] == 0:
+            features.pop("SM")
+        if features.get("NE") == b"\0":
+            features.pop("NE")
+    if instrument["kind"] != kind or set(features) - (
         {"NA", "MA", "FM", "LD", "SM", "NE"} if kind == 1 else {"NA", "MA"}
     ):
         raise FormatError("instrument requires bounded sequence macros")
@@ -78,7 +84,11 @@ def sequences(instrument, allowed=(0, 1, 4), kind=0):
             2: (0, 3),
             14: (0, 1),
         }[code]
-        if any(not bounds[0] <= v <= bounds[1] for v in values):
+        def supported(v):
+            return bounds[0] <= v <= bounds[1] or (
+                fixed_arp and code == 1 and 0x40000000 <= v <= 0x400000B3
+            )
+        if any(not supported(v) for v in values):
             raise FormatError("sequence value outside supported range")
         result[code] = Sequence(
             values, loop, release, mode, delay, speed, bool(flags & 8)

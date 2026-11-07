@@ -251,6 +251,7 @@ class VolumeEnvelope:
         arp_options=None,
         partial=False,
         continuous=False,
+        noise=False,
     ):
         from .arpeggio import Arpeggio
 
@@ -262,7 +263,9 @@ class VolumeEnvelope:
 
         self.slide = Slide(15, slide_options)
         # The SMS backend ignores duty/noise-mode macros on tone channels.
-        self.allowed = (0, 1, 2, 4) if allow_pitch else (0,)
+        self.allowed = (0, 1, 2) if noise else (0, 1, 2, 4) if allow_pitch else (0,)
+        self.noise = noise
+        self.noise_mode = 3
         self.linear = linear
         self.partial = partial
         self.continuous = continuous
@@ -307,7 +310,7 @@ class VolumeEnvelope:
         self.slide.begin(cell)
         self.tracker_arp.begin(cell, not sliding)
         if cell.instrument is not None:
-            sequences(instrument, self.allowed)
+            sequences(instrument, self.allowed, fixed_arp=self.noise)
         if cell.volume is not None:
             if not 0 <= cell.volume <= 15:
                 raise FormatError("PSG volume outside 0..15")
@@ -326,7 +329,7 @@ class VolumeEnvelope:
             if cell.note < 180 and not sliding:
                 self.porta_position = cell.note * 128
                 self.porta_target = self.porta_position
-                macros = sequences(instrument, self.allowed)
+                macros = sequences(instrument, self.allowed, fixed_arp=self.noise)
                 if 4 in macros and not self.linear:
                     raise FormatError("pitch macros require linear pitch")
                 self.cursors = {
@@ -408,6 +411,8 @@ class VolumeEnvelope:
                     self.macro_volume = value
                 elif code == 1:
                     self.arp = value
+                elif code == 2 and self.noise:
+                    self.noise_mode = value
                 elif code == 4:
                     self.pitch = (
                         max(-32768, min(32767, self.pitch + value))
@@ -415,7 +420,10 @@ class VolumeEnvelope:
                         else value
                     )
             pitch_note = (
-                self.tracker_base + self.arp + (self.pitch + self.effective_fine) / 128
+                ((self.arp & ~0x40000000) + 60
+                 if self.noise and self.arp & 0x40000000 and self.arp >= 0
+                 else self.tracker_base + self.arp)
+                + (self.pitch + self.effective_fine) / 128
             )
             self.pitch_changed = pitch_note != self.pitch_note
             self.pitch_note = pitch_note

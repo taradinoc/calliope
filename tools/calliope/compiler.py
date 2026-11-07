@@ -282,6 +282,23 @@ def infer_sfx(module, sub=0):
     raise FormatError("SFX must use channels from one FM or one PSG instance")
 
 
+def validate_music_psg(ins, context, noise=False):
+    if ins is None:
+        return
+    message = ": music noise requires a PSG instrument" if noise else ": PSG requires a tone instrument"
+    if ins["kind"] != 0:
+        raise FormatError(context + message)
+    for key, data in ins["features"].items():
+        if key in ("NA", "MA"):
+            continue
+        # Furnace can save disabled sample/NES fields on a PSG instrument.
+        if key == "SM" and len(data) == 4 and data[2] == 0:
+            continue
+        if key == "NE" and data == b"\x00":
+            continue
+        raise FormatError(context + message)
+
+
 def fm_patch(
     ins, volume=127, modern=True, ceil=False, attenuation=0, operator_levels=None
 ):
@@ -748,6 +765,7 @@ def compile_bank(
                     arp_options(module),
                     partial_pitch(module),
                     continuous_vibrato(module),
+                    noise=slot == 8,
                 )
                 for ch, slot in mapping.items()
                 if slot in (5, 6, 7, 8)
@@ -1132,12 +1150,7 @@ def compile_bank(
                                         ).to_bytes(2, "little")
                                     )
                         elif slot == 8:
-                            if ins is not None and (
-                                ins["kind"] != 0 or set(ins["features"]) - {"NA", "MA"}
-                            ):
-                                raise FormatError(
-                                    context + ": music noise requires a PSG instrument"
-                                )
+                            validate_music_psg(ins, context, noise=True)
                             force = False
                             for _, effect, value in cell.effects:
                                 if effect == 0x20:
@@ -1199,12 +1212,7 @@ def compile_bank(
                                         )
 
                         elif slot in (5, 6, 7):
-                            if ins is not None and (
-                                ins["kind"] != 0 or set(ins["features"]) - {"NA", "MA"}
-                            ):
-                                raise FormatError(
-                                    context + ": PSG requires a tone instrument"
-                                )
+                            validate_music_psg(ins, context, noise=False)
                             latch = 0x80 + ((slot - 5) << 5)
 
                             if cell.note is not None:
@@ -1372,12 +1380,39 @@ def compile_bank(
                                     )
                         if ch in envelopes:
                             envelope = envelopes[ch]
+                            if slot == 8:
+                                mode = noise_modes[ch]
+                                envelope.noise_mode = (mode & 1) | ((mode >> 3) & 2)
                             try:
                                 envelope.begin(cell, ins)
                             except FormatError as e:
                                 raise FormatError(context + ": " + str(e)) from e
                             for tick in range(row_ticks):
                                 level = envelope.tick(cut.get(tick))
+                                if slot == 8 and envelope.active:
+                                    mode = envelope.noise_mode
+                                    previous = noise_modes[ch]
+                                    encoded = (mode & 1) | ((mode & 2) << 3)
+                                    changed = encoded != previous
+                                    noise_modes[ch] = encoded
+                                    if changed or envelope.pitch_changed:
+                                        operation = bytearray()
+                                        if mode & 2:
+                                            if 7 in slots:
+                                                raise FormatError(context + ": tone-derived music noise reserves tone2 for the entire song")
+                                            paired_noise = True
+                                            if changed:
+                                                operation.extend((0x33, 0xE3 | ((mode & 1) << 2), 0xF0 | envelope.last))
+                                            if envelope.pitch_changed:
+                                                period = tone_period(envelope.pitch_note, module, region, noise=True)
+                                                operation.extend((0x30, 3, 0xC0 | (period & 15), period >> 4, 0xDF))
+                                        else:
+                                            note_class = int(envelope.pitch_note) % 12
+                                            if note_class < 3:
+                                                operation.extend((0x33, 0xE0 | ((mode & 1) << 2) | (2-note_class), 0xF0 | envelope.last))
+                                        if operation:
+                                            prefix = bytes((0x14, part_ids[ch])) if logical else b""
+                                            automation.setdefault(tick, bytearray()).extend(prefix + operation)
                                 if slot in (5, 6, 7) and envelope.pitch_changed:
                                     clock = (
                                         53693175 if region == "ntsc" else 53203424

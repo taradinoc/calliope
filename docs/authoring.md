@@ -335,3 +335,18 @@ counter. A decoder that reaches an empty queue late therefore cannot mistake a
 wrapped FIFO address for a future deadline. Patch-cache access blocks nested
 command delivery. Refill waits may service PCM from main, but cannot resume an
 already-running producer stack recursively.
+
+### PSG music instrument metadata and noise macros
+
+PSG instruments may contain Furnace's disabled sample field (SM, four bytes,
+flags zero) and neutral NES field (NE zero). Active sample maps and other chip
+features still fail validation. These editor fields do not change playback.
+
+Music noise instruments support bounded volume, arpeggio and duty sequences.
+Duty0/1 selects fixed periodic/white noise; duty2/3 selects tone2-derived
+periodic/white noise. Fixed arpeggio values with bit30 set use Furnace's
+absolute-note convention; relative steps remain relative to the played note.
+The converter expands these to existing PSG commands, without a Z80 macro VM.
+Any tone2-derived passage reserves tone2 for the entire song; assigning a
+separate music voice to tone2 is rejected. Tone/FM fixed arpeggio support is
+unchanged.
