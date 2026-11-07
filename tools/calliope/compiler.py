@@ -2,7 +2,7 @@
 BGM1 revision 12 is experimental: unsupported runtime features fail closed.
 """
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 import hashlib
 import math
@@ -475,6 +475,13 @@ def compile_bank(
                     "music/FM/PSG inputs must be .fur; PCM SFX must be .wav"
                 )
             module = parse(source)
+            # Blank commands are inert, even if an editable parameter is present.
+            # Keep parser/editor models intact; normalize only the playback copy.
+            module = replace(module, patterns={
+                key: {row: replace(cell, effects=[entry for entry in cell.effects if entry[1] is not None])
+                      for row, cell in cells.items()}
+                for key, cells in module.patterns.items()
+            })
             sub = integer(
                 item.get("subsong", 0), 0, len(module.subsongs) - 1, "subsong"
             )

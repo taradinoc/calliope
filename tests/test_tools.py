@@ -11,7 +11,8 @@ import wave
 import zlib
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'tools'))
-from calliope.furnace import parse,FormatError,Reader
+from calliope.furnace import parse,FormatError,Reader,Cell
+from unittest.mock import patch
 from calliope.compiler import compile_bank,infer_sfx,Packer,load_manifest,ids_header,fm_patch
 from calliope.pcm import decode,convert,RATES
 from calliope.reference import Player
@@ -36,6 +37,22 @@ class Fixture(unittest.TestCase):
                 for _ in range(channels): raw.extend(bytes((round(128+x*127),)) if width==1 else round(x*((1<<(8*width-1))-1)).to_bytes(width,'little',signed=True))
             w.writeframes(raw)
         return p
+    def test_blank_effect_commands_are_inert_without_mutating_source(self):
+        manifest=self.manifest();expected,_,_=compile_bank(manifest)
+        module=parse(self.root/'song.fur');pattern=next(iter(module.patterns.values()))
+        pattern[0].effects.append((1,None,12))
+        pattern[1]=Cell(effects=[(1,None,12)])
+        before=list(pattern[0].effects)
+        with patch('calliope.compiler.parse',return_value=module):
+            actual,_,_=compile_bank(manifest)
+        self.assertEqual(actual,expected)
+        self.assertEqual(pattern[0].effects,before)
+        self.assertEqual(pattern[1].effects,[(1,None,12)])
+        pattern[0].effects.append((2,0x7b,12))
+        with patch('calliope.compiler.parse',return_value=module):
+            with self.assertRaisesRegex(FormatError,'effect 7B'):
+                compile_bank(manifest)
+
     def test_song_fm_steal_order(self):
         data,_,_=compile_bank(self.manifest())
         player=Player(data);player.start(4)

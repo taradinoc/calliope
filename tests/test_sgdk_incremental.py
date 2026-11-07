@@ -19,6 +19,27 @@ class SgdkIncremental(unittest.TestCase):
     def test_resources_configuration_and_idle_cartridge(self):
         self.exercise('OUT')
 
+    def test_failed_audio_edit_does_not_publish_a_stale_cartridge(self):
+        with tempfile.TemporaryDirectory(prefix='sgdk failed audio ') as directory:
+            root=Path(directory);shutil.copytree(ROOT/'examples/minimal/audio',root/'audio')
+            (root/'src').mkdir();(root/'res').mkdir()
+            source=root/'src/main.c';source.write_bytes((ROOT/'examples/minimal/src/main.c').read_bytes())
+            (root/'Makefile').write_text('GDK := '+SDK.as_posix()+'\nCALLIOPE_HOME := '+ROOT.as_posix()+'\nCALLIOPE_BANK := audio/manifest.json\ninclude $(CALLIOPE_HOME)/make/sgdk.mk\ninclude $(CALLIOPE_HOME)/make/calliope.mk\n')
+            def build():
+                return subprocess.run([str(SDK/'bin/make.exe'),'release','-j4'],cwd=root,capture_output=True,text=True,timeout=120)
+            result=build();self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+            rom=root/'out/rom.bin';before=rom.read_bytes();stamp=rom.stat().st_mtime_ns
+            manifest=root/'audio/manifest.json';original=manifest.read_bytes();time.sleep(1.1)
+            manifest.write_text('{"version":1,"songs":[{"id":1,"name":"broken","source":"missing.fur"}]}')
+            source.touch()
+            result=build();self.assertNotEqual(result.returncode,0)
+            self.assertNotIn('KeyError',result.stdout+result.stderr)
+            self.assertEqual(rom.read_bytes(),before)
+            self.assertEqual(rom.stat().st_mtime_ns,stamp)
+            self.assertFalse((root/'out/calliope/configure.stamp').exists())
+            manifest.write_bytes(original)
+            result=build();self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+
     def test_out_dir_layout(self):
         self.exercise('OUT_DIR')
 

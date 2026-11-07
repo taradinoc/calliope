@@ -85,7 +85,7 @@ $(filter-out $(CLP_RESOURCE_OBJS),$(OBJS)) $(RES_RS): $(CLP_CONFIG_H)
 CLP_DRIVER_OBJ := $(CLP_OUT)/$(CALLIOPE_DRIVER_ASM:.s=.o)
 OBJS := $(OBJS) $(filter-out $(OBJS),$(CLP_DRIVER_OBJ))
 $(CLP_DRIVER_OBJ): $(CALLIOPE_DRIVER_ASM) $(CLP_CONFIG_H)
-$(CLP_OUT)/rom.out: $(CLP_DRIVER_OBJ)
+$(CLP_OUT)/rom.out: $(CLP_DRIVER_OBJ) $(CLP_STAMP)
 $(CLP_OUT)/cmd_: $(CLP_DRIVER_OBJ)
 
 # Optional generated includes compile library sources in the consumer without
@@ -118,7 +118,7 @@ $(CLP_VERIFY): $(CLP_OUT)/rom.bin $(CLP_OUT)/symbol.txt $(CALLIOPE_BUILD_DIR)/ca
 ifneq ($(filter debug Debug,$(MAKECMDGOALS)),)
 $(CLP_VERIFY): injectSymbolsInROM
 endif
-release debug: $(CLP_VERIFY)
+release debug: calliope-config $(CLP_VERIFY)
 ifneq ($(CLP_OUT),out)
 out/rom.bin: $(CLP_OUT)/rom.bin $(CLP_VERIFY)
 	$(CP) "$(CLP_OUT)/rom.bin" "$@"
