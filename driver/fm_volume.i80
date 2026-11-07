@@ -47,6 +47,7 @@ level_op:
         LD HL,TLTEMP
         LD B,5
         CALL fetch_block
+        RST $08
         LD A,(CONTEXT)
         OR A
         JR NZ,level_sfx
@@ -63,6 +64,7 @@ level_op:
         LDIR
         POP BC
 level_physical:
+        RST $08
         CALL part_blocked
         JP NZ,decode
         CALL level_address
@@ -70,11 +72,13 @@ level_physical:
 level_sfx:
         LD HL,PATCH+4
 level_copy:
+        RST $30
         PUSH HL
         EX DE,HL
         LD HL,TLTEMP
         CALL level_store
         POP HL
+        RST $30
         CALL voice_blocked
         JP NZ,decode
         LD A,(CONTEXT)
@@ -90,6 +94,7 @@ level_copy:
         OR A
         JP NZ,decode
 level_output:
+        RST $30
         CALL level_write
         JP decode
 

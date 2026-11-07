@@ -207,6 +207,7 @@ pcm_armed:
         RET
 ; Publish bounded 64-byte chunks directly, with no input buffers or mixer.
 pcm_service:
+        RST $08
         CALL pcm_check_end
 pcm_service_loop:
         CALL pcm_work
@@ -217,6 +218,7 @@ pcm_service_loop:
         JR NZ,pcm_service_loop
         RET
 pcm_work:
+        RST $08
         LD A,(FILLBUSY)
         OR A
         JP NZ,pcm_fill_resume
@@ -282,6 +284,7 @@ pcm_segment_bank:
         JR NC,pcm_segment_copy
         LD C,A
 pcm_segment_copy:
+        RST $08
         LD A,C
         LD ($1E9C),A
         LD L,(IX+0)

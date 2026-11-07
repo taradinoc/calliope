@@ -25,7 +25,6 @@ LOOPORD EQU $1E8A
 ORDER   EQU $1E8B
 RPTR    EQU $1E90
 PATCHES EQU $1E93
-CH      EQU $1E96
 PALACC  EQU $1E97
 PAUSED  EQU $1E9D
 TEMP    EQU $1EE0
@@ -251,6 +250,7 @@ fetch:
         OR A
         JR Z,fetch_miss
 fetch_cached:
+        RST $08
         LD A,12
         LD HL,SEQVALID
         SUB (HL)
@@ -289,6 +289,7 @@ fetch_map:
 ; read polls the DAC immediately before this bounded twelve-byte copy.
 ; Keep DMA checks between four-byte groups; the copy fits one sample period.
 fetch_copy:
+        RST $08
         LD A,(PROTECT)
         OR A
         JR NZ,fetch_protected
@@ -480,6 +481,7 @@ order_load:
         CALL relative
         JP channels_load
 music_tick:
+        RST $08
         LD A,(PAUSED)
         OR A
         RET NZ
@@ -548,6 +550,7 @@ decode_normal:
         JP Z,pan_op
         CP $20
         JP Z,event_op
+        RST $30
         CP $30
         JP Z,psg_op
         CP $31
@@ -605,21 +608,23 @@ off_op:
         CALL fetch_slot
         XOR A
         CALL part_note
+        RST $08
         CALL voice_blocked
+        RST $30
         CALL Z,keyoff
         JP decode
 patch_op:
         CALL fetch_slot
 patch_bound:
-        LD A,C
-        LD (CH),A
         CALL fetch
         LD B,A
         LD A,(CONTEXT)
         OR A
         JR NZ,patch_install
         CALL part_patch
+        RST $08
         CALL part_blocked
+        RST $30
         JP NZ,decode
         LD HL,MUSPATCH
         LD E,C
@@ -726,12 +731,12 @@ patch_control:
         RET
 note_op:
         CALL fetch_slot
-        LD A,C
-        LD (CH),A
         CALL fetch_frequency
         LD A,1
         CALL part_note
+        RST $08
         CALL voice_blocked
+        RST $30
         JP NZ,decode
         LD A,(CONTEXT)
         OR A
@@ -755,19 +760,14 @@ note_ready:
         CALL note_dispatch
         JP decode
 ; Frequencies are compiled offline; continuous writes never restart envelopes.
-fetch_frequency:
-        PUSH BC
-        LD HL,NOTETEMP
-        LD B,2
-        CALL fetch_block
-        POP BC
-        RET
 pitch_op:
         CALL fetch_slot
         CALL fetch_frequency
         LD A,2
         CALL part_note
+        RST $08
         CALL voice_blocked
+        RST $30
         JP NZ,decode
         LD A,(CONTEXT)
         OR A
@@ -814,6 +814,7 @@ note_write:
         JR C,note_key
         INC A
 note_key:
+        RST $30
         OR B
         LD E,A
         LD D,$28
@@ -912,6 +913,7 @@ fetch_block_slow:
         INC HL
         DJNZ fetch_block_slow
 fetch_block_return:
+        RST $30
         POP DE
         POP BC
         RET
@@ -1214,6 +1216,14 @@ tone_group_extension_end:
         BLOCK $1A80-$
         INCLUDE "patch_output.i80"
         INCLUDE "patch_queue.i80"
+; Keep the bounded operand helper in unused code space, not voice state.
+fetch_frequency:
+        PUSH BC
+        LD HL,NOTETEMP
+        LD B,2
+        CALL fetch_block
+        POP BC
+        RET
         IF $ > $1B00
         ERROR "Patch output overlaps logical voices"
         ENDIF

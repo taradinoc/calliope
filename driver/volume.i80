@@ -151,6 +151,7 @@ level_port:
         LD D,A
         LD B,4
 volume_operator:
+        RST $08
         LD E,(HL)
         INC HL
         CALL patch_volume

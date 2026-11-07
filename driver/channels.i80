@@ -122,6 +122,7 @@ channels_selected:
         DEC (IX+0)
         JR NZ,channels_next
 channels_due:
+        RST $08
         PUSH BC
         PUSH DE
         LD A,IXL
@@ -152,6 +153,7 @@ channels_next:
         INC E
         DJNZ channels_loop
 channels_done:
+        RST $08
         POP AF
         LD (WAIT),A
         POP AF

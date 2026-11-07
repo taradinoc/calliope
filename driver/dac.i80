@@ -29,3 +29,16 @@ dac_no_tick:
 dac_return:
         EI
         RET
+
+; Preserve live opcode/condition flags when polling between bounded helpers.
+        BLOCK $30-$
+dac_poll:
+        PUSH AF
+        RST $08
+        POP AF
+        RET
+
+; Reuse vector padding for the direct PSG hook.
+music_sync_psg_direct:
+        OR A
+        RET

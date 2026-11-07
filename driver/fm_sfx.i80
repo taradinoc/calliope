@@ -16,6 +16,7 @@ music_blocked:
         RET
 music_single_check:
         PUSH HL
+        RST $08
         LD A,C
         OR $20
         LD L,A
@@ -217,7 +218,6 @@ fm_acquire:
         LD (IX+1),C
         LD (CURSFX),IX
         LD A,C
-        LD (CH),A
         CALL keyoff
         ; Active ranks form a permutation 0..count-1, so age never wraps.
         PUSH IX

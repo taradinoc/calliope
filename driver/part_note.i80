@@ -1,6 +1,7 @@
  ; A: 0 off, 1 fresh note, 2 frequency-only update. Updates retain gate state.
 part_note:
         PUSH AF
+        RST $08
         LD A,(CONTEXT)
         OR A
         JR NZ,part_note_done

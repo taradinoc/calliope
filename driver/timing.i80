@@ -27,6 +27,7 @@ clock_again:
         LD HL,(MUSICACC)
         JR clock_again
 clock_save:
+        RST $30
         ADD HL,DE
         LD (MUSICACC),HL
         RET

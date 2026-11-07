@@ -41,15 +41,13 @@ music_sync_dac:
         OR A
         RET Z
         EXX ; work in the main registers; keep the DAC registers valid for IRQs
+        EI ; the video IRQ pulse must not wait for queue setup
         PUSH BC
         PUSH DE
         PUSH HL
         LD A,255
         LD (SYNCOWNER),A
-        EI
-        NOP
 music_sync_drain:
-        DI
         LD HL,(PATCHBUSY) ; high byte is CONTEXT
         LD A,H
         OR L
@@ -59,10 +57,12 @@ music_sync_drain:
         JP NZ,music_sync_low_pcm
         ; Do not monopolize a refill that has only published a few bytes.
         ; Recheck between writes so the producer always retains headroom.
+        DI
         EXX
         LD A,IYH
         SUB C
         EXX
+        EI
         CP 32
         JP C,music_sync_low_pcm
         LD A,(SYNCQCOUNT)
@@ -73,9 +73,11 @@ music_sync_drain:
         LD A,(SYNCHEADLEFT)
         OR A
         JR Z,music_sync_due
+        DI
         EXX
         LD A,C
         EXX
+        EI
         LD C,A
         LD A,B
         SUB C
@@ -92,6 +94,7 @@ music_sync_future:
         LD IYL,A
         JR music_sync_done
 music_sync_due:
+        RST $30
         INC L
         LD C,(HL)
         INC L
@@ -176,7 +179,4 @@ music_sync_mark:
         SUB C
         EX AF,AF'
         EI
-        RET
-music_sync_psg_direct:
-        OR A
         RET
