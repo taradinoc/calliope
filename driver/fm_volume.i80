@@ -66,7 +66,7 @@ level_op:
 level_physical:
         RST $08
         CALL part_blocked
-        JP NZ,decode
+        JR NZ,decode_level_exit
         CALL level_address
         JR level_copy
 level_sfx:
@@ -80,7 +80,7 @@ level_copy:
         POP HL
         RST $30
         CALL voice_blocked
-        JP NZ,decode
+        JR NZ,decode_level_exit
         LD A,(CONTEXT)
         OR A
         JR NZ,level_output
@@ -92,9 +92,10 @@ level_copy:
         LD A,(HL)
         POP HL
         OR A
-        JP NZ,decode
+        JR NZ,decode_level_exit
 level_output:
         RST $30
         CALL level_write
+decode_level_exit:
         JP decode
 

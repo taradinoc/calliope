@@ -40,6 +40,9 @@ music_sync_dac:
         LD A,(SYNCQCOUNT)
         OR A
         RET Z
+        ; Retire recursive drains while the current queue walk owns its head.
+        LD A,$C9
+        LD (music_sync_dac),A
         EXX ; work in the main registers; keep the DAC registers valid for IRQs
         EI ; the video IRQ pulse must not wait for queue setup
         PUSH BC
@@ -94,6 +97,10 @@ music_sync_future:
         LD IYL,A
         JR music_sync_done
 music_sync_due:
+        ; A nested ROM/DMA wait must not publish foreign scratch DE as PCM.
+        LD A,(FILLRUN)
+        OR A
+        JR NZ,music_sync_low_pcm
         RST $30
         INC L
         LD C,(HL)
@@ -161,6 +168,8 @@ music_sync_low_pcm:
         LD IYL,1 ; let the PCM producer run before further register delivery
 music_sync_done:
         DI
+        LD A,$3A
+        LD (music_sync_dac),A
         POP HL
         POP DE
         POP BC

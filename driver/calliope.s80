@@ -593,14 +593,14 @@ next_order:
         INC A
         LD (ORDER),A
         CALL order_load
-        JP decode
+        JR decode_patch_exit
 loop_or_end:
         LD A,(LOOPORD)
         CP 255
         JR Z,end_song
         LD (ORDER),A
         CALL order_load
-        JP decode
+        JR decode_patch_exit
 end_song:
         LD A,(CONTEXT)
         OR A
@@ -619,7 +619,7 @@ off_op:
         CALL voice_blocked
         RST $30
         CALL Z,keyoff
-        JP decode
+        JR decode_patch_exit
 patch_op:
         CALL fetch_slot
 patch_bound:
@@ -632,14 +632,14 @@ patch_bound:
         RST $08
         CALL part_blocked
         RST $30
-        JP NZ,patch_continue
+        JR NZ,patch_continue
         LD HL,MUSPATCH
         LD E,C
         LD D,0
         ADD HL,DE
         LD (HL),B
         CALL music_blocked
-        JP NZ,patch_continue
+        JR NZ,patch_continue
         LD HL,DIRTY
         ADD HL,DE
         LD (HL),0
@@ -650,6 +650,7 @@ patch_continue:
         LD A,(PLAYING)
         CP 2
         RET Z ; priming consumes exactly one leading patch, never a note
+decode_patch_exit:
         JP decode
 install_patch:
         LD E,A
@@ -738,7 +739,7 @@ note_op:
         RST $08
         CALL voice_blocked
         RST $30
-        JP NZ,decode
+        JR NZ,decode_note_exit
         LD A,(CONTEXT)
         OR A
         JR NZ,note_ready
@@ -759,7 +760,7 @@ note_op:
         CALL pan_from_part
 note_ready:
         CALL note_dispatch
-        JP decode
+        JR decode_note_exit
 ; Frequencies are compiled offline; continuous writes never restart envelopes.
 pitch_op:
         CALL fetch_slot
@@ -769,7 +770,7 @@ pitch_op:
         RST $08
         CALL voice_blocked
         RST $30
-        JP NZ,decode
+        JR NZ,decode_note_exit
         LD A,(CONTEXT)
         OR A
         JR NZ,pitch_write
@@ -779,9 +780,10 @@ pitch_op:
         ADD HL,DE
         LD A,(HL)
         OR A
-        JP NZ,decode
+        JR NZ,decode_note_exit
 pitch_write:
         CALL frequency_write
+decode_note_exit:
         JP decode
 frequency_write:
         LD A,(NOTETEMP)
@@ -829,7 +831,7 @@ event_op:
         LD A,B
         SUB C
         CP 16
-        JP NC,event_drop
+        JR NC,event_drop
         LD A,B
         AND 15
         LD L,A
@@ -857,7 +859,7 @@ event_op:
         LD A,(EVTW)
         INC A
         LD (EVTW),A
-        JP decode
+        JR decode_note_exit
 ; B resident operands -> HL, preserving BC/DE and advancing HL and SEQ.
 ; Poll the DAC between two-byte groups. Window crossings use normal fetches.
 fetch_block:
@@ -932,7 +934,7 @@ event_lost_saturated:
 event_discard:
         CALL fetch
         DJNZ event_discard
-        JP decode
+        JR decode_psg_exit
 PSGUPDATE EQU $1F57
 psg_update_op:
         LD A,1
@@ -948,6 +950,7 @@ psg_bytes:
         CALL part_psg
         CALL psg_write
         DJNZ psg_bytes
+decode_psg_exit:
         JP decode
 pcm_op:
         LD B,3
@@ -958,10 +961,10 @@ pcm_operand:
         INC DE
         DJNZ pcm_operand
         CALL part_blocked
-        JP NZ,decode
+        JR NZ,decode_psg_exit
         LD A,(MUTEMASK+1)
         BIT 1,A
-        JP NZ,decode
+        JR NZ,decode_psg_exit
         XOR A
         LD (TEMP+7),A
         LD (TEMP+2),A
@@ -1180,6 +1183,9 @@ pan_check_end:
 pcm_descriptor_protected:
         CALL music_yield
         JP pcm_descriptor_restart
+        IF $ > $1920
+        ERROR "Descriptor helper overlaps channel schedule"
+        ENDIF
         BLOCK $1930-$
 pan_write_start:
 pan_write:

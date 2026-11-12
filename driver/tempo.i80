@@ -8,7 +8,7 @@ tempo_request:
         LD (TEMPOREQ),A
         RRCA
         RET NC
-        JP tempo_apply
+        JR tempo_apply
 tempo_due:
         LD HL,TEMPOREQ
         AND (HL)

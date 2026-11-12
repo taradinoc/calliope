@@ -33,4 +33,4 @@ sfx_loop_end:
         XOR A
         LD (SEQVALID),A
         LD (WAIT),A
-        JP decode
+        JR decode_level_exit

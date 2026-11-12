@@ -579,13 +579,13 @@ noise_note:
         LD A,E
         CALL part_psg
         CALL part_blocked
-        JP NZ,decode
+        JR NZ,decode_noise_exit
         LD A,B
         AND $F7
         LD (MUSICNOISE),A
         LD C,8
         CALL voice_blocked
-        JP NZ,decode
+        JR NZ,decode_noise_exit
         LD A,(DIRTY+8)
         OR A
         JR NZ,noise_note_control
@@ -601,4 +601,5 @@ noise_note_control:
 noise_note_volume:
         LD A,E
         CALL psg_write
+decode_noise_exit:
         JP decode

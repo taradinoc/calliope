@@ -10,6 +10,8 @@ music_sync_reset:
         LD (PATCHBUSY),A
         LD IYL,A
         EX AF,AF'
+        LD A,$3A
+        LD (music_sync_dac),A
         CALL music_sync_restore
         EI
         POP AF
