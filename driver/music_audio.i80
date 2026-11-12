@@ -20,10 +20,3 @@ music_sync_flush:
         CALL music_yield
         JR music_sync_flush
 
-music_sync_restore:
-        LD HL,ym_direct
-        LD (ym+1),HL
-        LD HL,music_sync_psg_direct
-        LD (music_sync_psg+1),HL
-        RET
-

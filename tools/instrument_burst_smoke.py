@@ -3,6 +3,7 @@ import argparse
 import copy
 import ctypes as C
 import json
+import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,7 +14,7 @@ from libretro_host import Host
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def fixture(out, pal):
+def fixture(out, pal, driver=None, opening=False):
     source = ROOT / "examples/fm_ring.fur"
     module = parse(source)
     song = module.subsongs[0]
@@ -45,7 +46,7 @@ def fixture(out, pal):
         for pattern in (0, 1):
             module.patterns[0, channel, pattern] = {
                 0: Cell(note=108 + channel, instrument=channel + pattern * 5, volume=127,
-                        effects=[(0, 0xee, 0xa0 + channel), (1, 0xee, 0xb0 + channel)]),
+                        effects=[] if opening else [(0, 0xee, 0xa0 + channel), (1, 0xee, 0xb0 + channel)]),
                 14: Cell(note=110 + channel),
             }
     voices = [{"channel": i, "slot": "fm" + str(i)} for i in range(5)]
@@ -58,6 +59,13 @@ def fixture(out, pal):
     with patch("calliope.compiler.parse", return_value=module):
         bank, _, _ = compile_bank(manifest, "pal" if pal else "ntsc")
     raw = bytearray((ROOT / "audition/out/rom.bin").read_bytes())
+    if driver:
+        # A diagnostic fixture can use a rebuilt ABI-compatible driver without
+        # rebuilding unrelated audition music. Never alter the base cartridge.
+        symbols=(ROOT/"audition/out/symbol.txt").read_text()
+        address=int(re.search(r"^([0-9a-f]+) [A-Za-z] clp_driver$",symbols,re.M)[1],16)
+        image=driver.read_bytes();assert len(image)==8192
+        raw[address:address+8192]=image
     base = raw.index(b"BGM1")
     raw[base:base + len(bank)] = bank
     rom = out / "burst.bin"
@@ -72,28 +80,47 @@ def main():
     parser.add_argument("--core", type=Path, default=ROOT / "out/trace-core/build/calliope_trace.dll")
     parser.add_argument("--pal", action="store_true")
     parser.add_argument("--gain", type=int, default=0, choices=range(128))
+    parser.add_argument("--nuked", action="store_true", help="Compare actual Nuked registers; requires a freshly built trace core")
+    parser.add_argument("--driver", type=Path, help="Rebuilt pure-Z80 image for the diagnostic fixture")
+    parser.add_argument("--opening-only", action="store_true", help="Check cold five-voice setup and the opening attack only")
     args = parser.parse_args()
     out = ROOT / "out" / ("instrument-burst-" + ("pal" if args.pal else "ntsc") + "-" + str(args.gain))
+    if args.nuked:out=out.with_name(out.name+"-nuked")
+    if args.opening_only:out=out.with_name(out.name+"-opening")
     out.mkdir(parents=True, exist_ok=True)
-    rom, expected = fixture(out, args.pal)
-    host = Host(args.core, rom, out, {b"genesis_plus_gx_region_detect": b"pal" if args.pal else b"ntsc"})
+    rom, expected = fixture(out, args.pal, args.driver, args.opening_only)
+    host = Host(args.core, rom, out, {b"genesis_plus_gx_region_detect": b"pal" if args.pal else b"ntsc",
+                                    **({b"genesis_plus_gx_ym2612": b"nuked (ym2612)"} if args.nuked else {})})
     host.core.clp_zram.restype = C.POINTER(C.c_ubyte)
     zram = host.core.clp_zram()
     frame_clocks = 3420 * (313 if args.pal else 262)
     writes = []
     frame = 0
-    callback = C.CFUNCTYPE(None, C.c_uint, C.c_uint, C.c_uint, C.c_uint)(
-        lambda clocks, reg, value, pc: writes.append(
-            (frame + clocks / frame_clocks, reg, value)
-        ) if reg != 0x2a and reg != 0x27 else None
-    )
+    actual_checks=0;desired={};ready=False
+    masks={0x30:0x7f,0x40:0x7f,0x50:0xdf,0x60:0x9f,0x70:0x1f,0x80:0xff,0x90:0x0f}
+    def record(clocks,reg,value,pc):
+        if reg not in (0x2a,0x27):writes.append((frame+clocks/frame_clocks,reg,value))
+        if ready and reg<512 and reg&3!=3 and ((reg&0xf0) in masks or (reg&0xfc) in (0xb0,0xb4)):
+            mask=masks.get(reg&0xf0,0x3f if reg&0xfc==0xb0 else 0xf7)
+            desired[reg]=(value&mask,frame)
+    callback=C.CFUNCTYPE(None,C.c_uint,C.c_uint,C.c_uint,C.c_uint)(record)
+    if args.nuked:
+        assert host.variables.get(b"genesis_plus_gx_ym2612")==b"nuked (ym2612)"
+        host.core.clp_fm_register.argtypes=[C.c_uint]
+        host.core.clp_fm_register.restype=C.c_uint
     host.core.clp_chip_trace_set.argtypes = [type(callback)]
     host.core.clp_chip_trace_set(callback)
     boundaries = {}
     gain_sent = False
     try:
-        for frame in range(350):
+        for frame in range(90 if args.opening_only else 350):
             host.run(1)
+            if zram[0x1d00]==0x80:ready=True
+            if args.nuked and ready:
+                for reg,(value,written) in desired.items():
+                    if written>=frame:continue # Allow end-of-frame chip latching.
+                    actual=host.core.clp_fm_register(reg);actual_checks+=1
+                    assert actual==value,(frame,hex(reg),value,actual,bytes(zram[0x1d00:0x1d10]).hex())
             z = bytes(zram[:8192])
             tick = int.from_bytes(z[0x1d0a:0x1d0e], "little")
             if args.gain and tick >= 20 and not gain_sent:
@@ -106,6 +133,17 @@ def main():
             if z[0x1d0e] and z[0x1e8b] in (1, 2, 3):
                 boundaries.setdefault(z[0x1e8b], frame)
             assert not z[0x1d05] and not z[0x1d1a], (frame, z[0x1d05], z[0x1d1a])
+        if args.opening_only:
+            starts=[next(when for when,reg,value in writes if reg==0x28 and value&0xf0 and value&7==channel)
+                    for channel in (0,1,2,4,5)]
+            spread=(max(starts)-min(starts))*1000/host.video_hz
+            report=dict(region="pal" if args.pal else "ntsc",gain=args.gain,
+                        actual_nuked_register_checks=actual_checks,opening_spread_ms=spread,
+                        fault=z[0x1d05],underrun=z[0x1d1a],scope="Cold five-voice opening only")
+            (out/"report.json").write_text(json.dumps(report,indent=2)+"\n")
+            print(json.dumps(report,indent=2))
+            assert spread<=1000/60,report
+            return
         assert len(boundaries) == 3, boundaries
         assert z[0x1738:0x1740] == z[0x1f78:0x1f80] == bytes([165] * 8)
         result = []
@@ -138,7 +176,7 @@ def main():
                            "note_intervals_ms": intervals,
                            "entrance_spread_ms": (max(first) - min(first)) * 1000 / host.video_hz})
         report = {"region": "pal" if args.pal else "ntsc", "gain": args.gain,
-                  "boundaries": result, "fault": z[0x1d05], "underrun": z[0x1d1a], "guards": True, "instrument_registers": True}
+                  "actual_nuked_register_checks": actual_checks, "boundaries": result, "fault": z[0x1d05], "underrun": z[0x1d1a], "guards": True, "instrument_registers": True}
         (out / "report.json").write_text(json.dumps(report, indent=2) + "\n")
         print(json.dumps(report, indent=2))
         assert all(row["maximum_keyoff_gap_ms"] < 1000 / 60 for row in result)

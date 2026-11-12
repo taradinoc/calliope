@@ -62,3 +62,39 @@ using the same fixtures. Run
 with `--host-pcm`. The existing full
 hybrid authored-bank golden trace assertion also fails on the pristine current
 Mercurial baseline; the token-query change does not update those golden hashes.
+
+
+## Nuked patch settling and cold song openings - 2026-11-11
+
+Pure-Z80 patch writes now wait for busy to clear before another operator address
+or DAC poll can replace the latch. Busy counts divided YM internal clocks; the
+former bulk-write spacing could lose operator data under Nuked YM2612.
+`tools/build_trace_core.py` now exports normalized actual chip registers.
+`tools/instrument_burst_smoke.py --nuked` compares these with outgoing writes,
+including runtime gain. A fresh diagnostic core is required for that option.
+
+Song start primes leading FM patch operations before advancing the song clock.
+It leaves the cursor unchanged for a leading wait, note, PSG/PCM or other
+operation. Internal PLAYING=2 selects this cold traversal; 1 remains normal
+playback and 0 stopped playback. SFX decoding continues while music is stopped.
+The existing startup tick-credit reset now follows cold patch loading. Bank
+format, score times, generations and SFX ownership are unchanged. The helper
+relocation reserves pure-Z80 shared bytes 44..62 for code, before the command
+ring at byte 64; assembly checks all boundaries and the 8192-byte image.
+
+`--opening-only --nuked` selects a minimal five-voice cold-start check, omitting
+unrelated external notifications, with an opening spread ceiling of one nominal
+video period. It passes NTSC/PAL at gains 0 and 8. `--driver PATH` can supply a
+rebuilt ABI-compatible driver to a generated copy of the retained audition ROM.
+Bonk's actual-register and invincibility-opening checks pass six music windows,
+repeated full transformations and silent-backing handoff in both regions.
+Detailed commands, hashes and measured attacks are retained in Bonk's
+`docs/fm-patch-evidence-2026-11-11.json` and `docs/behavior.md`.
+
+The full ongoing five-voice burst is still an acceptance failure: the measured
+Nuked gain-8 entrance spread reaches about 59.3 ms versus the unchanged 33.3 ms
+gate. Actual registers match and no fault/underrun occurs, but correct serial
+patch delivery does not close live multi-voice timing acceptance. The retained
+old-driver fixture also fails, including an underrun. This supersedes the earlier
+historical burst-pass claim for the tested current integration. Physical hardware
+acceptance, strict DAC jitter and broader throughput gates remain open.

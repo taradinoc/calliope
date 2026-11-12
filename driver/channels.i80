@@ -5,6 +5,9 @@ SONGSYNC EQU $193E
 
 channels_sync:
         LD B,A
+        LD A,(PLAYING)
+        RRCA
+        RET NC ; startup patch priming must use direct, silent writes
         LD A,(SONGSYNC)
         ADD A,A
         LD A,B
@@ -138,7 +141,17 @@ channels_due:
         LD (SEQ+2),A
         XOR A
         LD (SEQVALID),A
+        LD A,(PLAYING)
+        RRCA
+        JR C,channels_decode
+        CALL fetch
+        CP $10
+        JR NZ,channels_primed
+        CALL patch_op
+        JR channels_decoded
+channels_decode:
         CALL decode
+channels_decoded:
         POP IX
         LD HL,(SEQ)
         LD (IX+1),L
@@ -147,6 +160,7 @@ channels_due:
         LD (IX+3),A
         LD A,(WAIT)
         LD (IX+0),A
+channels_restore:
         POP DE
         POP BC
 channels_next:
@@ -164,3 +178,6 @@ channels_done:
         LD (SEQVALID),A
         LD (SYNCCAPTURE),A
         JP music_sync_restore
+channels_primed:
+        POP IX
+        JR channels_restore

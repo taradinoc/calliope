@@ -447,11 +447,18 @@ start:
         LD (MUSICMASK),A
         CALL parts_load
         CALL cache_patches
+        ; Prepare leading FM patches while every new-song channel is silent.
+        ; The audible clock starts only after cold ROM/setup work completes.
+        LD A,2
+        LD (PLAYING),A
+        CALL order_load
+        CALL channels_tick
+        LD HL,PLAYING
+        DEC (HL)
         XOR A
         LD (PENDING),A
         LD (PALACC),A
-        LD A,1
-        LD (PLAYING),A
+        RET
 order_load:
         XOR A
         LD (SEQVALID),A
@@ -625,20 +632,24 @@ patch_bound:
         RST $08
         CALL part_blocked
         RST $30
-        JP NZ,decode
+        JP NZ,patch_continue
         LD HL,MUSPATCH
         LD E,C
         LD D,0
         ADD HL,DE
         LD (HL),B
         CALL music_blocked
-        JP NZ,decode
+        JP NZ,patch_continue
         LD HL,DIRTY
         ADD HL,DE
         LD (HL),0
 patch_install:
         LD A,B
         CALL install_patch
+patch_continue:
+        LD A,(PLAYING)
+        CP 2
+        RET Z ; priming consumes exactly one leading patch, never a note
         JP decode
 install_patch:
         LD E,A
@@ -681,7 +692,7 @@ patch_channel:
         LD C,A
         LD B,7
 patch_operator:
-        RST $08
+        CALL music_yield
         LD A,C
         AND $F0
         CP $40
@@ -696,12 +707,7 @@ patch_tl_operator:
         LD A,(DE)
         INC DE
         CALL patch_adjust
-        DI
-        LD (HL),C
-        INC L
-        LD (HL),A
-        DEC L
-        EI
+        CALL patch_write
         LD A,C
         ADD A,4
         LD C,A
@@ -715,14 +721,9 @@ patch_group_done:
         LD B,2
 patch_control:
         RST $08
-        DI
-        LD (HL),C
-        INC L
         LD A,(DE)
         INC DE
-        LD (HL),A
-        DEC L
-        EI
+        CALL patch_write
         SET 2,C
         DJNZ patch_control
         POP BC
@@ -1059,11 +1060,10 @@ music_yield:
         JR NZ,music_yield_fill
         DI
         EXX
-        LD A,C
+        LD A,IYH
+        SUB C
         EXX
         EI
-        SUB IYH
-        NEG
         CP PCM_LOOKAHEAD
         RET NC
 music_yield_fill:
@@ -1100,17 +1100,6 @@ music_yield_fill:
         INCLUDE "music_reset.i80"
 ; Note-off alone leaves an audible FM release tail after stop/pause/EOF.
 ; Keep the authored TL shadows so dirty voices can restore on resume.
-note_dispatch:
-        LD A,(SYNCCAPTURE)
-        OR A
-        JP Z,note_write
-        LD DE,(NOTETEMP)
-        LD A,C
-        OR $80
-        JP music_sync_enqueue
-music_sync_prepare_direct:
-        CALL pcm_service
-        JP music_sync_mark
 music_sync_begin:
         CALL music_sync_mark
         JP decode
@@ -1216,16 +1205,31 @@ tone_group_extension_end:
         BLOCK $1A80-$
         INCLUDE "patch_output.i80"
         INCLUDE "patch_queue.i80"
+note_dispatch:
+        LD A,(SYNCCAPTURE)
+        OR A
+        JP Z,note_write
+        LD DE,(NOTETEMP)
+        LD A,C
+        OR $80
+        JP music_sync_enqueue
+
 ; Keep the bounded operand helper in unused code space, not voice state.
 fetch_frequency:
-        PUSH BC
         LD HL,NOTETEMP
         LD B,2
-        CALL fetch_block
-        POP BC
-        RET
+        JP fetch_block
         IF $ > $1B00
         ERROR "Patch output overlaps logical voices"
+        ENDIF
+        BLOCK $1D2C-$
+; Shared fields end at byte 43; commands begin at byte 64.
+        INCLUDE "music_restore.i80"
+music_sync_prepare_direct:
+        CALL pcm_service
+        JP music_sync_mark
+        IF $ > $1D40
+        ERROR "Cold audio helpers overlap the host command ring"
         ENDIF
         BLOCK $1EB0-$
 silence_extension_start:

@@ -36,6 +36,29 @@ static void clp_trace_write(unsigned int cycles,unsigned int a,unsigned int v) {
         signature='static void '+function+'(unsigned int cycles, unsigned int a, unsigned int v)\n{'
         assert signature in original
         original=original.replace(signature,signature+'\n  clp_trace_write(cycles,a,v);')
+    # Expose normalized operator registers for write-completeness diagnostics.
+    probe = r"""
+__declspec(dllexport) unsigned int clp_fm_register(unsigned int address) {
+  unsigned int channel=(address&3)+((address>>8)&1)*3;
+  unsigned int slot=channel+((address>>2)&1)*6+((address>>3)&1)*12;
+  if ((address&3)==3 || address>=512) return 0xffffffff;
+  switch (address&0xf0) {
+    case 0x30:return (ym3438.dt[slot]<<4)|(ym3438.multi[slot]==1?0:ym3438.multi[slot]>>1);
+    case 0x40:return ym3438.tl[slot];
+    case 0x50:return (ym3438.ks[slot]<<6)|ym3438.ar[slot];
+    case 0x60:return (ym3438.am[slot]<<7)|ym3438.dr[slot];
+    case 0x70:return ym3438.sr[slot];
+    case 0x80:return ((ym3438.sl[slot]==31?15:ym3438.sl[slot])<<4)|ym3438.rr[slot];
+    case 0x90:return ym3438.ssg_eg[slot];
+  }
+  if ((address&0xfc)==0xb0)return (ym3438.fb[channel]<<3)|ym3438.connect[channel];
+  if ((address&0xfc)==0xb4)return (ym3438.pan_l[channel]<<7)|(ym3438.pan_r[channel]<<6)|(ym3438.ams[channel]<<4)|ym3438.pms[channel];
+  return 0xffffffff;
+}
+"""
+    anchor='static ym3438_t ym3438;'
+    assert anchor in original
+    original=original.replace(anchor,anchor+'\n'+probe)
     (out/'sound.c').write_text(original,newline='\r\n')
     psg=(a.source/'core/sound/psg.c').read_text()
     signature='void psg_write(unsigned int clocks, unsigned int data)\n{'
