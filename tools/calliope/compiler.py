@@ -1431,7 +1431,7 @@ def compile_bank(
                                     )
                                     if (
                                         tick == 0
-                                        and len(payload) >= 4
+                                        and len(payload) - channel_at >= 4
                                         and payload[-4:-2] == bytes((0x30, 2))
                                     ):
                                         payload[-2:] = values
@@ -1448,7 +1448,7 @@ def compile_bank(
                                     value = 0x90 + ((slot - 5) << 5) | level
                                     if (
                                         tick == 0
-                                        and len(payload) >= 4
+                                        and len(payload) - channel_at >= 4
                                         and payload[-4:-2] == bytes((0x30, 2))
                                     ):
                                         payload[-3] = 3
@@ -1456,7 +1456,7 @@ def compile_bank(
                                         continue
                                     if (
                                         tick == 0
-                                        and len(payload) >= 3
+                                        and len(payload) - channel_at >= 3
                                         and payload[-3] == 0x33
                                     ):
                                         payload[-1] = value
