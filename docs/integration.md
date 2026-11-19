@@ -228,3 +228,28 @@ Hybrid mode retains its existing coherent consumed-status snapshot. The full
 sequencer, PCM or command timing. Adapter tests compare750 mailbox states under
 both bus-ownership conditions in each mode, including byte/word generation
 boundaries and stale completions.
+
+
+### Event scratch-record traversal
+
+The pure-Z80 clp_poll adapter walks its existing four twelve-byte scratch
+records with a pointer to array rows. It advances that pointer after the same
+record acknowledgement and bus release, instead of calculating raw[copied]
+on every iteration. This changes no API, capacity, generation filtering,
+mailbox read/write order, bus ownership, interrupt nesting or decoded fields.
+All raw copies still finish before output decoding. The fixed scratch area
+remains; no cache or persistent state is added. Hybrid polling is unchanged.
+
+Reproduction and evidence limits: python -X utf8 tools/adapter_test.py passes
+the real adapter against the mailbox/SGDK stub, including wrapped event slots,
+stale generations, four-record refusal, null/zero requests, caller-owned bus
+and decode-after-release checks. A Bonk2Gen ordinary-release linked build
+saves ten registers rather than eleven at the poll entry and removes repeated
+scratch-row multiplication. Its behavior-preserving contact-loop change is
+measured jointly with this adapter change: three cold runs of seven routes
+retain or improve cadence and budget counts, with zero audio faults, PCM
+underruns and event loss. The adapter change alone does not improve every
+route's cadence; fewer instructions are not a stand-alone timing guarantee.
+Detailed controls and artifacts remain in Bonk2Gen's performance contract and
+ignored out/optimization-poll-pointer directory. These are software-emulator
+and host checks, not stock-hardware or general consumer performance claims.

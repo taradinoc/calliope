@@ -205,13 +205,14 @@ u16 clp_poll(ClpEvent *events, u16 capacity)
     bool taken;
     u8 r, w;
     volatile u8 raw[4][12];
+    volatile u8 (*record)[12] = raw;
     if (!events || !capacity)
         return 0;
     if (capacity > 4)
         capacity = 4;
     while (copied < capacity)
     {
-        volatile u8 *destination = raw[copied];
+        volatile u8 *destination = *record;
         u16 off;
         SYS_disableInts();
         taken = Z80_getAndRequestBus(TRUE);
@@ -242,6 +243,7 @@ u16 clp_poll(ClpEvent *events, u16 capacity)
             Z80_releaseBus();
         SYS_enableInts();
         copied++;
+        ++record;
     }
     /* Decode only after releasing BUSREQ. Volatile keeps LTO from moving it. */
     for (i = 0; i < copied; i++)
