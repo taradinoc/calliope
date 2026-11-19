@@ -253,3 +253,37 @@ route's cadence; fewer instructions are not a stand-alone timing guarantee.
 Detailed controls and artifacts remain in Bonk2Gen's performance contract and
 ignored out/optimization-poll-pointer directory. These are software-emulator
 and host checks, not stock-hardware or general consumer performance claims.
+
+
+### Keep empty event polls out of the event decoder (2026-11-19)
+
+The pure-Z80 adapter checks the event cursors before entering pollNonempty.
+An empty poll performs the same interrupt masking, one bus acquisition, cursor
+reads and conditional release. It allocates no event scratch or decoder frame.
+The nonempty helper continues that existing acquisition and read cursor; it
+retains the four-record limit, byte wrapping, generation filtering and decoding
+only after every snapshot has released the bus. It does not reacquire the bus
+for the first record. Hybrid code and the driver binary are unchanged.
+
+The noinline annotation prevents LTO from restoring the large empty-call frame.
+In Bonk's measured release LTO inlines the small empty entry into its existing
+caller. The retained decoder is1112 bytes, versus1126 for the former complete
+poll; this does not by itself measure a complete application's saving.
+
+Reproduction and evidence limits: python -X utf8 tools/adapter_test.py passes
+the real C implementation against the mailbox/SGDK stub. The added360 cases
+cover six cursor starts across byte wrap, zero through five queued records,
+capacities1..5, stale generations and borrowed/unowned bus states. They check
+exact acquisition/release counts, output order, read-pointer movement,
+interrupt balance and deferred decoding. Existing null/zero tests still pass.
+
+Bonk's joint overlay-binding/adapter release has SHA256
+`d52898ca56875b6fb53c846bdb8c871618b91742e3a33ffe5e8d2445068c2022`.
+Its matched cloud prefixes fall4968138 to4355750 master clocks over299 samples;
+none enters the nonempty decoder. These prefixes retain the same publication
+mode counts. All named gameplay routes repeat on three cold runs, with no
+runtime/audio/Z80/PCM fault or event loss; menus, difficulties and warm resets
+also pass. Artifacts are in E:/Bonk2Gen/out/optimization-overlay-empty-poll.
+The two changes were accepted jointly after standalone overlay candidates
+worsened one route's cadence. This is consumer-specific software-core evidence,
+not a universal adapter speedup or stock-hardware timing proof.

@@ -45,6 +45,29 @@ int main(void) {
     assert(clp_poll(result,4)==1 && result[0].id==5 && mailbox[4]==3);
     before=requests; assert(clp_poll(NULL,4)==0 && clp_poll(result,0)==0 && requests==before);
     owned=true; before=releases; assert(clp_poll(result,4)==0 && owned && releases==before); owned=false;
+    /* Empty/first-record handoff preserves every bus and interrupt boundary. */
+    {
+        int head, length, capacity, borrowed, j, consumed, expected, n;
+        int oldRequests, oldReleases;
+        for(head=252;head<258;head++)for(length=0;length<=5;length++)
+        for(capacity=1;capacity<=5;capacity++)for(borrowed=0;borrowed<2;borrowed++) {
+            mailbox[4]=(u8)head;mailbox[3]=(u8)(head+length);
+            for(j=0;j<length;j++)event((u8)(head+j),j%3==1?request+1:request,(u16)(100+j));
+            consumed=capacity>4?4:capacity;
+            if(consumed>length)consumed=length;
+            expected=0;
+            for(j=0;j<consumed;j++)if(j%3!=1)expected++;
+            memset(result,0xaa,sizeof(result));pendingOutput=result;
+            owned=borrowed!=0;oldRequests=requests;oldReleases=releases;
+            n=clp_poll(result,(u16)capacity);pendingOutput=NULL;
+            assert(n==expected && mailbox[4]==(u8)(head+consumed));
+            assert(requests-oldRequests==consumed+(consumed<capacity && consumed<4));
+            assert(releases-oldReleases==(borrowed?0:requests-oldRequests));
+            assert(owned==(borrowed!=0) && !disabled);
+            n=0;for(j=0;j<consumed;j++)if(j%3!=1)assert(result[n++].id==100+j);
+            owned=false;
+        }
+    }
     mailbox[24]=255;mailbox[25]=255;mailbox[5]=0;mailbox[20]=0x34;mailbox[21]=0x12;mailbox[22]=1;
     bankData=clp_driver;
     mailbox[10]=0x78;mailbox[11]=0x56;mailbox[12]=0x34;mailbox[13]=0x12;

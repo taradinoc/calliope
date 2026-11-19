@@ -199,32 +199,19 @@ bool clp_playSfx(u16 effect, u8 priority, u16 token)
         return FALSE;
     return send(type == 1 ? 4 : 9, token, offset | ((u32)priority << 24));
 }
-u16 clp_poll(ClpEvent *events, u16 capacity)
+#if defined(__GNUC__)
+__attribute__((noinline))
+#endif
+static u16 pollNonempty(ClpEvent *events, u16 capacity, bool taken, u8 r)
 {
     u16 n = 0, copied = 0, i;
-    bool taken;
-    u8 r, w;
+    u8 w;
     volatile u8 raw[4][12];
     volatile u8 (*record)[12] = raw;
-    if (!events || !capacity)
-        return 0;
-    if (capacity > 4)
-        capacity = 4;
     while (copied < capacity)
     {
         volatile u8 *destination = *record;
         u16 off;
-        SYS_disableInts();
-        taken = Z80_getAndRequestBus(TRUE);
-        r = M[4];
-        w = M[3];
-        if (r == w)
-        {
-            if (!taken)
-                Z80_releaseBus();
-            SYS_enableInts();
-            break;
-        }
         off = 192 + (r & 15) * 12;
         destination[0] = M[off];
         destination[1] = M[off + 1];
@@ -244,6 +231,19 @@ u16 clp_poll(ClpEvent *events, u16 capacity)
         SYS_enableInts();
         copied++;
         ++record;
+        if (copied == capacity)
+            break;
+        SYS_disableInts();
+        taken = Z80_getAndRequestBus(TRUE);
+        r = M[4];
+        w = M[3];
+        if (r == w)
+        {
+            if (!taken)
+                Z80_releaseBus();
+            SYS_enableInts();
+            break;
+        }
     }
     /* Decode only after releasing BUSREQ. Volatile keeps LTO from moving it. */
     for (i = 0; i < copied; i++)
@@ -261,6 +261,27 @@ u16 clp_poll(ClpEvent *events, u16 capacity)
         e->tick = raw[i][8] | ((u32)raw[i][9] << 8) | ((u32)raw[i][10] << 16) | ((u32)raw[i][11] << 24);
     }
     return n;
+}
+/* Keep the empty mailbox path free of event scratch and decoding state.
+ * The nonempty helper continues the same bus acquisition and read cursor. */
+u16 clp_poll(ClpEvent *events, u16 capacity)
+{
+    bool taken;
+    u8 r, w;
+    if (!events || !capacity)
+        return 0;
+    if (capacity > 4)
+        capacity = 4;
+    SYS_disableInts();
+    taken = Z80_getAndRequestBus(TRUE);
+    r = M[4];
+    w = M[3];
+    if (r != w)
+        return pollNonempty(events, capacity, taken, r);
+    if (!taken)
+        Z80_releaseBus();
+    SYS_enableInts();
+    return 0;
 }
 /* Private driver layouts stay inside Calliope, not in consumers. */
 #ifndef CALLIOPE_SFX_STATE
