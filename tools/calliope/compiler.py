@@ -1,5 +1,5 @@
 """Compile a sound bank, retaining pattern/order structure.
-BGM1 revision 12 is experimental: unsupported runtime features fail closed.
+BGM1 revisions 12/13 are version-bound; unsupported used effects fail closed.
 """
 
 from dataclasses import asdict, replace
@@ -41,6 +41,7 @@ from .volume import (
     validate_loop_entry as validate_volume_loop,
 )
 from .channel_stream import split as split_channels
+from .music_schedule import prepare as schedule_music
 from .marker_advance import advance as advance_markers
 from .panning import EFFECTS as PAN_EFFECTS, row as row_pan
 
@@ -91,6 +92,8 @@ def validate_manifest(m):
             not isinstance(i, dict) for i in m.get(category, [])
         ):
             raise FormatError(category + " must be a list of resource objects")
+    if "z80_schedule" in m and type(m["z80_schedule"]) is not bool:
+        raise FormatError("z80_schedule must be boolean")
     if "marker_advance_ticks" in m:
         integer(m["marker_advance_ticks"], 0, 65535, "marker_advance_ticks")
     names = set()
@@ -429,6 +432,7 @@ def compile_bank(
         path = Path(manifest).resolve()
         m = load_manifest(path)
         dependencies = [str(path)]
+    scheduled = m.get("z80_schedule", False) and timer == 1016
     header_manifest = dict(m, songs=[])
     pack = Packer()
     patches = []
@@ -1625,7 +1629,7 @@ def compile_bank(
                 streams.append(compiled)
                 terminal = OP_END if stopped else OP_PATTERN_END
                 terminals.append(terminal)
-                if category == "songs" and not marker_advance:
+                if category == "songs" and not marker_advance and not scheduled:
                     addresses = [
                         pack.add(pattern, alignment=16)
                         for pattern in split_channels(
@@ -1640,19 +1644,17 @@ def compile_bank(
                     orders.append(pack.add(compiled + bytes((terminal,))))
                 if stopped:
                     break
-            if marker_advance:
-                streams = advance_markers(streams, marker_advance, flow.loop)
-                for compiled, terminal in zip(streams, terminals):
-                    addresses = [
-                        pack.add(pattern, alignment=16)
-                        for pattern in split_channels(
-                            compiled, len(voices), terminal, 9 in mapping.values(),
-                            max((i for i, slot in enumerate(mapping.values()) if slot != 9), default=0)
-                        )
-                    ]
-                    orders.append(
-                        pack.add(b"".join(ptr(address) for address in addresses))
-                    )
+            if category == "songs" and (marker_advance or scheduled):
+                if marker_advance:
+                    streams = advance_markers(streams, marker_advance, flow.loop)
+                event_part = max((i for i, slot in enumerate(mapping.values()) if slot != 9), default=0)
+                patterns = schedule_music(streams, list(mapping.values()), terminals,
+                                          9 in mapping.values(), event_part, flow.loop) if scheduled else [
+                    split_channels(compiled, len(voices), terminal, 9 in mapping.values(), event_part)
+                    for compiled, terminal in zip(streams, terminals)]
+                for group in patterns:
+                    addresses = [pack.add(pattern, alignment=16) for pattern in group]
+                    orders.append(pack.add(b"".join(ptr(address) for address in addresses)))
             if category == "sfx":
                 effect_kind = "multi_fm" if len(channels) > 1 else "fm"
                 mask = (
@@ -1931,7 +1933,7 @@ def compile_bank(
     effectindex = pack.add(directory) if effects else 0
     pack.data[:32] = (
         b"BGM1"
-        + bytes((12, 0, len(songs), len(effects), len(patches), 0))
+        + bytes((13 if scheduled else 12, 0, len(songs), len(effects), len(patches), 0))
         + ptr(songaddr)
         + ptr(effectaddr)
         + ptr(patchaddr)
@@ -1943,7 +1945,8 @@ def compile_bank(
         )
     )
     report = {
-        "format": "BGM1-12",
+        "format": "BGM1-13" if scheduled else "BGM1-12",
+        "z80_schedule": scheduled,
         "runtime_profile": "channel-patterns-exclusive-pcm",
         "region": region,
         "bytes": len(pack.data),

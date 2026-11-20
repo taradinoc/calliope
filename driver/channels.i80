@@ -145,8 +145,11 @@ channels_due:
         RRCA
         JR C,channels_decode
         CALL fetch
+        CP $3B
+        JR Z,channels_prime_patch
         CP $10
         JR NZ,channels_primed
+channels_prime_patch:
         CALL patch_op
         JR channels_decoded
 channels_decode:

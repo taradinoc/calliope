@@ -114,8 +114,17 @@ music_volume:
 volume_channel:
         CALL music_blocked
         JR NZ,volume_next
+        LD HL,PATCHBUSY
+        INC (HL) ; serialize this voice only; yield other due voices between gains
         CALL level_address
-        CALL level_write
+        LD A,L
+        OR 4
+        LD L,A
+        BIT 7,(HL)
+        RES 2,L
+        CALL Z,level_write ; a prepared algorithm must retain all-muted TLs
+        LD HL,PATCHBUSY
+        DEC (HL)
 volume_next:
         CALL music_yield
         INC C

@@ -1,5 +1,5 @@
-; Calliope experimental FM bring-up. Original implementation.
-; ABI and memory boundaries are documented in docs/status.md.
+; Resident pure-Z80 sequencer, accepting BGM1 revisions 12 and 13.
+; Clock, queue flags and overlays: docs/z80-scheduling.md.
 SHARED  EQU $1D00
 READY   EQU SHARED
 CMDW    EQU SHARED+1
@@ -25,7 +25,7 @@ LOOPORD EQU $1E8A
 ORDER   EQU $1E8B
 RPTR    EQU $1E90
 PATCHES EQU $1E93
-PALACC  EQU $1E97
+PALACC  EQU $1E97 ; Timer-B fractional-period accumulator (also in PAL)
 PAUSED  EQU $1E9D
 TEMP    EQU $1EE0
 PATCH   EQU $1700
@@ -47,46 +47,21 @@ vint:
         PUSH AF
         CALL dac_irq
         PUSH BC
-        LD B,3
+        LD B,16
 vint_hold:
         DJNZ vint_hold
         POP BC
-        LD A,(PENDING)
-        CP 32
-        JR NC,vint_full
-        INC A
-        LD (PENDING),A
-        JR vint_end
-vint_full:
-        LD A,1
-        LD (FAULT),A
-vint_end:
         POP AF
         EI
         RETI
-init:
-        LD SP,$2000
-        IM 1
-        XOR A
-        LD (PENDING),A
-        LD (WAIT),A
-        LD (PLAYING),A
-        LD (TEMPOREQ),A
-        CALL music_sync_reset
-        LD (PALACC),A
-        DEC A
-        LD (BANK),A
-        CALL silence
-        CALL pcm_init
-        LD A,$80
-        LD (READY),A
-        EI
 main:
         CALL pcm_service
         LD A,(PROTECT)
         OR A
         JR NZ,main
-        CALL commands
+        LD A,(PENDING)
+        CP 2
+        CALL C,commands ; preserve audio progress under control-ring backpressure
         RST $08
         LD A,(PENDING)
         OR A
@@ -95,22 +70,9 @@ main:
         LD A,(PENDING)
         DEC A
         LD (PENDING),A
-        EI
+        CALL frame_deadline
         CALL tick
         RST $08
-        LD A,(REGION)
-        OR A
-        JR Z,main
-        LD A,(PALACC)
-        INC A
-        CP 5
-        JR C,pal_save
-        XOR A
-        LD (PALACC),A
-        CALL tick
-        JR main
-pal_save:
-        LD (PALACC),A
         JR main
 ; YM write: D = address, E = value, C = physical channel.
 ; DAC service may change the address latch; the final address/data pair is atomic.
@@ -250,7 +212,6 @@ fetch:
         OR A
         JR Z,fetch_miss
 fetch_cached:
-        RST $08
         LD A,12
         LD HL,SEQVALID
         SUB (HL)
@@ -538,9 +499,14 @@ decode_patch:
         CP $40
         JR C,decode_normal
         CP $50
-        JR NC,decode_normal
+        JR C,decode_bound_patch
+        AND 3
+        JP level_single
+decode_bound_patch:
         SUB $40
         CALL part_bind
+        XOR A
+        LD (SHORTREQ),A
         JP patch_bound
 decode_normal:
         OR A
@@ -576,6 +542,10 @@ decode_normal:
         JP Z,clock_change
         CP $39
         JP Z,lfo_op
+        CP $3A
+        JP Z,prefetch_queue_op
+        CP $3B
+        JP Z,patch_short_op
         CP $FD
         JR Z,next_order
         CP $FF
@@ -620,7 +590,13 @@ off_op:
         RST $30
         CALL Z,keyoff
         JR decode_patch_exit
+patch_short_op:
+        LD A,$20
+        JR patch_request
 patch_op:
+        XOR A
+patch_request:
+        LD (SHORTREQ),A
         CALL fetch_slot
 patch_bound:
         CALL fetch
@@ -658,13 +634,49 @@ install_patch:
         OR A
         LD A,E
         JR Z,install_patch_direct
+patch_enqueue:
         LD D,255
-        LD A,C
+        LD A,(SHORTREQ)
+        OR C
         JP music_sync_enqueue
 install_patch_direct:
         LD B,A
         LD HL,PATCHBUSY
         INC (HL)
+        CALL level_address
+        OR 4
+        LD L,A
+        LD A,(PREMODE)
+        DEC A
+        JR Z,patch_shadow_mode
+        CP 2
+        JR NZ,patch_shadow_mode
+        BIT 5,(HL)
+        JR Z,patch_not_prepared
+        INC HL
+        INC HL
+        LD A,(HL)
+        DEC HL
+        DEC HL
+        CP B
+        JR Z,patch_shadow_mode
+patch_not_prepared:
+        XOR A
+        LD (PREMODE),A
+patch_shadow_mode:
+        LD A,(PREMODE)
+        DEC A
+        LD A,$20 ; physical ID valid; +6 holds the installed ID
+        JR NZ,patch_flags_ready
+        LD A,$A0 ; prepared and physically muted until the short commit
+patch_flags_ready:
+        LD (HL),A
+        INC HL
+        INC HL
+        LD (HL),B
+        LD A,(PREMODE)
+        CP 3
+        JP Z,patch_short_ready
         LD A,B
         CALL cache_one_patch
         LD HL,FMKEYS
@@ -705,9 +717,19 @@ patch_tl_group:
         LD B,4
 patch_tl_operator:
         RST $08
+        LD A,(PREMODE)
+        DEC A
+        JR Z,patch_mute_operator
         LD A,(DE)
         INC DE
         CALL patch_adjust
+        JR patch_tl_write
+; Preload only in a proven maximum-TL gap. Mute all operators before B0
+; changes: a new algorithm can expose a previously non-carrier operator.
+patch_mute_operator:
+        INC DE
+        LD A,127
+patch_tl_write:
         CALL patch_write
         LD A,C
         ADD A,4
@@ -727,8 +749,14 @@ patch_control:
         CALL patch_write
         SET 2,C
         DJNZ patch_control
+patch_controls_done:
         POP BC
+        JR patch_shadow_done
+patch_short_ready:
+        CALL keyoff
+patch_shadow_done:
         XOR A
+        LD (PREMODE),A
         LD (PATCHBUSY),A
         RET
 note_op:
@@ -753,6 +781,8 @@ note_op:
         LD (HL),0
         LD HL,MUSPATCH
         ADD HL,DE
+        XOR A
+        LD (SHORTREQ),A
         LD A,(HL)
         CALL install_patch
         CALL level_from_part
@@ -974,32 +1004,6 @@ pcm_operand:
         INCLUDE "pcm.i80"
         INCLUDE "fm_sfx.i80"
         INCLUDE "parts.i80"
-cache_patches:
-        LD A,($1E9E)
-        OR A
-        RET NZ
-        ; Header patch pointer at relative 16.
-        LD HL,(BASE)
-        LD DE,16
-        ADD HL,DE
-        LD (RPTR),HL
-        LD A,(BASE+2)
-        ADC A,0
-        LD (RPTR+2),A
-        LD HL,PATCHES
-        CALL read
-        LD (HL),A
-        INC HL
-        CALL read
-        LD (HL),A
-        INC HL
-        CALL read
-        LD (HL),A
-        LD A,255
-        LD (PATCHID),A
-        LD A,1
-        LD ($1E9E),A
-        RET
 PATCHID EQU $1F5C
 cache_one_patch:
         LD HL,PATCHID
@@ -1058,16 +1062,13 @@ music_yield:
         LD A,(FILLRUN)
         OR A
         RET NZ
-        LD A,(FILLBUSY)
-        OR A
-        JR NZ,music_yield_fill
         DI
         EXX
         LD A,IYH
         SUB C
         EXX
         EI
-        CP PCM_LOOKAHEAD
+        CP 64
         RET NC
 music_yield_fill:
         PUSH BC
@@ -1103,9 +1104,156 @@ music_yield_fill:
         INCLUDE "music_reset.i80"
 ; Note-off alone leaves an audible FM release tail after stop/pause/EOF.
 ; Keep the authored TL shadows so dirty voices can restore on resume.
-music_sync_begin:
-        CALL music_sync_mark
+music_sync_begin EQU decode
+        INCLUDE "patch_queue.i80"
+PREMODE EQU $1F68
+SHORTREQ EQU $1F6A
+pan_output:
+        CALL pan_write
         JP decode
+cache_patch_protected:
+        CALL music_yield
+        JP cache_patch_restart
+; Timer-B captures a fixed sample deadline, independent of refill chunk ends.
+; Retired coroutine cursor storage is free; live mute/PSG state starts at 1F16.
+FRAMEFRONT EQU $1F14
+FRAMETARGET EQU SYNCFRONT
+; A = pending ticks after consuming this one. Backlogged ticks keep their
+; earlier deadline; an expired countdown saturates instead of wrapping.
+frame_deadline:
+        LD B,A
+        EXX
+        LD A,C
+        EXX
+        LD C,A
+        LD A,(FRAMEFRONT)
+        SUB C
+        LD L,A
+        LD H,0
+frame_tick_samples:
+        LD DE,111
+        INC B
+        JR frame_test
+frame_backlog:
+        OR A
+        SBC HL,DE
+frame_test:
+        DJNZ frame_backlog
+        LD A,L
+        ADD A,C
+        LD (FRAMETARGET),A
+        LD A,L
+        BIT 7,H
+        JR Z,frame_on_time
+        XOR A
+frame_on_time:
+        EX AF,AF'
+        EI
+        RET
+prefetch_queue_op:
+        CALL fetch_slot
+        CALL fetch
+        LD E,A
+        CALL part_blocked
+        JP NZ,decode
+        LD A,C
+        OR $40
+        LD D,255
+        CALL music_sync_enqueue
+        JP decode
+level_single_output:
+        CALL ym
+        JP decode
+timer_b_probe:
+        RRA
+        RET NC
+; Timer B is the audio clock; VBlank only provides an urgent DAC poll.
+; One B increment is 16128 master clocks. Fractional 55/56 (NTSC) or
+; 54/55 (PAL) periods average 59.9981/59.9999 Hz without video catch-up bursts.
+frame_signal:
+        LD A,(PALACC)
+frame_fraction_add:
+        ADD A,125
+        LD (PALACC),A
+frame_fraction_base:
+        LD A,201
+        JR NC,frame_timer_period
+        DEC A
+frame_timer_period:
+        LD (HL),$26
+        LD (DE),A
+frame_timer_wait:
+        LD A,($4000)
+        AND $80
+        JR NZ,frame_timer_wait
+        LD (HL),$27
+        LD A,$3F
+        LD (DE),A
+        LD A,C
+        ADD A,248
+        LD (FRAMEFRONT),A
+        PUSH HL
+        LD HL,PENDING
+        LD A,(HL)
+        CP 32
+        JR NC,frame_overflow
+        INC (HL)
+        JR frame_signal_done
+frame_overflow:
+        LD A,1
+        LD (FAULT),A
+frame_signal_done:
+        POP HL
+        RET
+; Restore the serial latch directly. A dummy ROM read can wait through DMA
+; protection after an already-loaded patch and stall unrelated ready notes.
+restore_patch_bank:
+        LD HL,BANK
+        CP (HL)
+        RET Z
+        LD (HL),A
+        LD HL,$6000
+        LD B,8
+patch_bank_loop:
+        LD (HL),A
+        RRCA
+        DJNZ patch_bank_loop
+        XOR A
+        LD (HL),A
+        RET
+patch_transfer:
+        LD HL,(ym+1)
+        PUSH HL
+        LD HL,ym_direct
+        LD (ym+1),HL
+        BIT 7,B
+        JR NZ,note_commit
+        LD HL,(RPTR)
+        PUSH HL
+        LD A,(RPTR+2)
+        PUSH AF
+        LD A,(BANK)
+        PUSH AF
+        LD A,E
+        CALL install_patch_direct
+        POP AF
+        CALL restore_patch_bank
+        POP AF
+        POP HL
+        LD (RPTR),HL
+        LD (RPTR+2),A
+        JR patch_commit_done
+note_commit:
+        LD HL,(NOTETEMP)
+        PUSH HL
+        LD (NOTETEMP),DE
+        CALL note_write
+        POP HL
+        LD (NOTETEMP),HL
+patch_commit_done:
+        POP HL
+        LD (ym+1),HL
+        RET
 code_end:
         IF $ > $1700
         ERROR "Code overlaps patch cache at 0x1700"
@@ -1123,6 +1271,21 @@ read_extension_end:
         ENDIF
         BLOCK $1738-$
         DB $A5,$A5,$A5,$A5,$A5,$A5,$A5,$A5 ; refill stack guard
+        BLOCK $1740-$
+        INCLUDE "patch_output.i80"
+note_dispatch:
+        LD A,(SYNCCAPTURE)
+        OR A
+        JP Z,note_write
+        LD DE,(NOTETEMP)
+        LD A,C
+        OR $80
+        JP music_sync_enqueue
+
+; Keep the bounded operand helper in unused code space, not voice state.
+        IF $ > $1780
+        ERROR "Output helpers exceed former refill stack"
+        ENDIF
         BLOCK $1780-$
 extension_start:
         INCLUDE "part_psg.i80"
@@ -1143,9 +1306,6 @@ pan_extension_end:
 control_extension_start:
         INCLUDE "clock_load.i80"
         INCLUDE "tempo_rate.i80"
-pan_output:
-        CALL pan_write
-        JP decode
 ; Apply music gain to a TL value while the bulk writer uses DE as its cursor.
 patch_adjust:
         PUSH HL
@@ -1158,9 +1318,12 @@ patch_adjust:
         POP DE
         POP HL
         RET
-cache_patch_protected:
-        CALL music_yield
-        JP cache_patch_restart
+fetch_frequency:
+        LD HL,NOTETEMP
+        LD B,2
+        JP fetch_block
+cache_patches:
+        JP cache_patches_cold
 control_extension_end:
         IF $ > $18D8
         ERROR "Control helpers overlap FM level state"
@@ -1201,6 +1364,37 @@ pan_write_end:
         IF $ > $193E
         ERROR "Panning write overlaps synchronization flag"
         ENDIF
+; Before channels_load initializes all sixteen cursors, use their page for
+; the one-time patch-directory loader. The trampoline retires itself to RET.
+        BLOCK $1940-$
+cache_patches_cold:
+        ; Header patch pointer at relative 16.
+        LD HL,(BASE)
+        LD DE,16
+        ADD HL,DE
+        LD (RPTR),HL
+        LD A,(BASE+2)
+        ADC A,0
+        LD (RPTR+2),A
+        LD HL,PATCHES
+        CALL read
+        LD (HL),A
+        INC HL
+        CALL read
+        LD (HL),A
+        INC HL
+        CALL read
+        LD (HL),A
+        LD A,255
+        LD (PATCHID),A
+        LD A,1
+        LD ($1E9E),A
+        LD A,$C9
+        LD (cache_patches),A
+        RET
+        IF $ > $1980
+        ERROR "Cold patch loader exceeds track overlay"
+        ENDIF
         BLOCK $1980-$
 tone_group_extension_start:
         INCLUDE "tone_group.i80"
@@ -1208,32 +1402,134 @@ tone_group_extension_end:
         IF $ > $1A00
         ERROR "Tone-group helpers overlap synchronized chip queue"
         ENDIF
-        BLOCK $1A80-$
-        INCLUDE "patch_output.i80"
-        INCLUDE "patch_queue.i80"
-note_dispatch:
-        LD A,(SYNCCAPTURE)
-        OR A
-        JP Z,note_write
-        LD DE,(NOTETEMP)
-        LD A,C
-        OR $80
-        JP music_sync_enqueue
-
-; Keep the bounded operand helper in unused code space, not voice state.
-fetch_frequency:
-        LD HL,NOTETEMP
-        LD B,2
-        JP fetch_block
         IF $ > $1B00
         ERROR "Patch output overlaps logical voices"
+        ENDIF
+        BLOCK $1AC0-$
+level_single:
+        LD B,A
+        CALL fetch
+        LD E,A
+        LD HL,(CURPART)
+        LD A,L
+        ADD A,9
+        ADD A,B
+        LD L,A
+        LD (HL),E
+        CALL voice_blocked
+        JR NZ,level_single_done
+        LD A,C
+        OR $30
+        LD L,A
+        LD H,$1F
+        LD A,(HL)
+        OR A
+        JR NZ,level_single_done
+        CALL level_address
+        ADD A,B
+        LD L,A
+        LD (HL),E
+        INC HL
+        LD A,C
+        CP 3
+        JR C,level_single_port
+        SUB 3
+level_single_port:
+        ADD A,$40
+        LD D,A
+        LD A,B
+        ADD A,A
+        ADD A,A
+        ADD A,D
+        LD D,A
+        CALL patch_volume
+        JP level_single_output
+level_single_done:
+        JP decode
+        IF $ > $1B00
+        ERROR "Transfer body exceeds queue tail"
+        ENDIF
+; Boot code is dead before parts_load initializes the logical state page.
+; This retains all sixteen parts and the full 256-byte PCM FIFO.
+        BLOCK $1B00-$
+init:
+        LD SP,$2000
+        IM 1
+        XOR A
+        LD (PENDING),A
+        LD (WAIT),A
+        LD (PLAYING),A
+        LD (TEMPOREQ),A
+        CALL music_sync_reset
+        LD (PALACC),A
+        DEC A
+        LD (BANK),A
+        CALL silence
+pcm_init:
+        XOR A
+        LD (DACON),A
+        LD (PCMSFX),A
+        LD (PCM0+12),A
+        LD (FILLBUSY),A
+        LD (FILLRUN),A
+        EXX
+        LD BC,$1C00
+        LD DE,$4001
+        LD HL,$4000
+        EXX
+        LD A,192
+        LD (OUTW),A
+        LD IY,$C000
+        LD C,0
+        LD D,$24
+        LD E,PCM_TIMER_A/4
+        CALL ym
+        LD D,$25
+        LD E,PCM_TIMER_A & 3
+        CALL ym
+        LD D,$26
+        LD A,(REGION)
+        OR A
+        LD E,200
+        JR Z,timer_region_ready
+        LD E,201
+        LD A,251
+        LD (frame_fraction_add+1),A
+        LD A,202
+        LD (frame_fraction_base+1),A
+        LD A,110
+        LD (frame_tick_samples+1),A
+timer_region_ready:
+        CALL ym
+        LD D,$27
+        LD E,$3F
+        CALL ym
+        LD D,$2B
+        LD E,$80
+        CALL ym
+        JP init_finish
+init_finish:
+        LD HL,$1C00
+        LD DE,$1C01
+        LD BC,255
+        LD (HL),$80
+        LDIR
+        LD A,1
+        LD (DACON),A
+        LD A,$F3
+        LD (dac_service),A
+        LD A,$80
+        LD (READY),A
+        EI
+        JP main
+        IF $ > $1C00
+        ERROR "Boot overlay exceeds idle FIFO"
         ENDIF
         BLOCK $1D2C-$
 ; Shared fields end at byte 43; commands begin at byte 64.
         INCLUDE "music_restore.i80"
 music_sync_prepare_direct:
-        CALL pcm_service
-        JP music_sync_mark
+        JP pcm_service
         IF $ > $1D40
         ERROR "Cold audio helpers overlap the host command ring"
         ENDIF

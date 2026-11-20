@@ -4,7 +4,7 @@ music_sync_enqueue:
         RST $08
 music_sync_room:
         LD A,(SYNCQCOUNT)
-        CP 32
+        CP 48
         JR C,music_sync_store
         CALL music_yield
         JR music_sync_room
@@ -21,16 +21,18 @@ music_sync_store:
         LD (HL),E
         INC L
 music_sync_tail:
-        RES 7,L
+        LD A,L
+        CP $C0
+        JR C,music_sync_tail_ready
+        LD L,0
+music_sync_tail_ready:
         LD (SYNCQTAIL),HL
         LD HL,SYNCQCOUNT
         INC (HL)
         LD A,(HL)
-        CP 1
+        DEC A
         JR NZ,music_sync_enqueued
-        PUSH BC
         CALL music_sync_arm
-        POP BC
         RST $08
 music_sync_enqueued:
         POP HL
@@ -40,6 +42,8 @@ music_sync_dac:
         LD A,(SYNCQCOUNT)
         OR A
         RET Z
+        XOR A
+        LD (SYNCHEADLEFT),A
         ; Retire recursive drains while the current queue walk owns its head.
         LD A,$C9
         LD (music_sync_dac),A
@@ -51,23 +55,6 @@ music_sync_dac:
         LD A,255
         LD (SYNCOWNER),A
 music_sync_drain:
-        LD HL,(PATCHBUSY) ; high byte is CONTEXT
-        LD A,H
-        OR L
-        JP NZ,music_sync_low_pcm
-        LD A,(PROTECT)
-        OR A
-        JP NZ,music_sync_low_pcm
-        ; Do not monopolize a refill that has only published a few bytes.
-        ; Recheck between writes so the producer always retains headroom.
-        DI
-        EXX
-        LD A,IYH
-        SUB C
-        EXX
-        EI
-        CP 32
-        JP C,music_sync_low_pcm
         LD A,(SYNCQCOUNT)
         OR A
         JP Z,music_sync_done
@@ -84,7 +71,6 @@ music_sync_drain:
         LD C,A
         LD A,B
         SUB C
-        OR A
         JR Z,music_sync_due
         LD D,A
         LD A,(SYNCHEADLEFT)
@@ -95,13 +81,26 @@ music_sync_drain:
 music_sync_future:
         INC A
         LD IYL,A
-        JR music_sync_done
+        JP music_sync_done
 music_sync_due:
-        ; A nested ROM/DMA wait must not publish foreign scratch DE as PCM.
-        LD A,(FILLRUN)
-        OR A
-        JR NZ,music_sync_low_pcm
-        RST $30
+        EX DE,HL
+        LD HL,(PATCHBUSY) ; high byte is CONTEXT
+        LD A,H
+        OR L
+        JP NZ,music_sync_low_pcm
+        ; Do not monopolize a refill that has only published a few bytes.
+        ; Recheck between writes so the producer always retains headroom.
+        DI
+        EXX
+        LD A,IYH
+        SUB C
+        EXX
+        EI
+        CP 32
+        JP C,music_sync_low_pcm
+        EX DE,HL
+        ; With a synchronous refill and saved caller registers, RAM-only delivery
+        ; may run on the producer stack. ROM reads retain their own DMA guard.
         INC L
         LD C,(HL)
         INC L
@@ -110,7 +109,11 @@ music_sync_due:
         LD E,(HL)
         INC L
 music_sync_next:
-        RES 7,L
+        LD A,L
+        CP $C0
+        JR C,music_sync_head_ready
+        LD L,0
+music_sync_head_ready:
         LD (SYNCQHEAD),HL
         LD A,(HL)
         SUB B
@@ -120,6 +123,9 @@ music_sync_next:
         EI
         LD B,C
         RES 7,C
+        RES 6,C
+        RES 5,C
+music_sync_selected:
         LD A,(SYNCOWNER)
         CP C
         JR Z,music_sync_owner_cached
@@ -174,18 +180,4 @@ music_sync_done:
         POP DE
         POP BC
         EXX
-        RET
-music_sync_mark:
-        LD A,(OUTW)
-        LD (SYNCFRONT),A
-        LD B,A
-        DI
-        EXX
-        LD A,C
-        EXX
-        LD C,A
-        LD A,B
-        SUB C
-        EX AF,AF'
-        EI
         RET

@@ -1,11 +1,14 @@
 ; Patch bytes must reach the operator scan before another address (including
 ; a DAC poll) replaces the latch. Busy counts internal YM clocks, not input
-; clocks. Poll between individual writes; keep each write/settle span atomic.
+; clocks. Poll between bounded pairs; keep each write/settle span atomic.
 patch_quad:
         PUSH BC
         LD B,4
 patch_quad_operator:
+        BIT 0,B
+        JR NZ,patch_quad_ready
         RST $08
+patch_quad_ready:
         LD A,(DE)
         INC DE
         CALL patch_write

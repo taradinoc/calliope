@@ -28,7 +28,7 @@ class BankLatch(unittest.TestCase):
 
     def test_both_real_latch_transactions_have_no_software_service(self):
         for name,start,end in (('calliope.s80','bank_bits:','read_mapped:'),
-                               ('pcm.i80','pcm_resume_bank:','pcm_resume_bank_ready:')):
+                               ('calliope.s80','patch_bank_loop:','patch_transfer:')):
             body=(ROOT/'driver'/name).read_text(encoding='utf-8').split(start,1)[1].split(end,1)[0]
             instructions='\n'.join(line.split(';',1)[0]for line in body.splitlines())
             self.assertIsNone(re.search(r'\b(?:RST|CALL|EI)\b',instructions),name)

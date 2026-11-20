@@ -1,14 +1,13 @@
 dac_service:
         RET ; armed as DI ($F3) after alternate registers and timer exist
         EXX
-        BIT 0,(HL)
-        JR NZ,dac_tick
-        EXX
-        EI
-        RET
+        LD A,(HL)
+        RRCA
+        JR NC,dac_no_tick
 dac_tick:
+        CALL timer_b_probe
         LD (HL),$27
-        LD A,$15
+        LD A,$1F
         LD (DE),A
         LD A,IYH
         CP C

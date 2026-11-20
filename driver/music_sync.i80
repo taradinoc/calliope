@@ -3,7 +3,8 @@
 ; consumed only in main. Cache the check across adjacent same-channel writes.
 SYNCOWNER EQU $1EF5
 SYNCBLOCK EQU $1EF6
-; 32 four-byte commands occupy 1A00h..1A7Fh. Bulk delivery code follows.
+; 48 four-byte commands occupy 1A00h..1ABFh; the sparse-TL helper follows.
+; Channel flags: bit7 note, bit6 physical prepatch, bit5 validated short patch.
 SYNCQHEAD EQU $1EE8
 SYNCQTAIL EQU $1EEA
 SYNCQCOUNT EQU $1EEC
@@ -56,12 +57,9 @@ music_sync_arm:
         ; late first enqueue must not infer a future deadline from subtraction.
         DI
         EX AF,AF'
-        LD B,A
-        EX AF,AF'
-        LD A,B
         LD (SYNCHEADLEFT),A
-        INC A
         LD IYL,A
+        INC IYL
+        EX AF,AF'
         EI
         RET
-

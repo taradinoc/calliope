@@ -98,3 +98,14 @@ patch delivery does not close live multi-voice timing acceptance. The retained
 old-driver fixture also fails, including an underrun. This supersedes the earlier
 historical burst-pass claim for the tested current integration. Physical hardware
 acceptance, strict DAC jitter and broader throughput gates remain open.
+
+
+## Bonk2Gen pure-Z80 scheduling integration
+
+The revision13 opt-in and resident audio-clock correction are specified in
+[z80-scheduling.md](z80-scheduling.md). The game retains27 songs/94 effects/25
+unchanged FM patches, passes second-area NTSC/PAL captures and register checks,
+and has a positive second-area listening report. This closes that integration's
+reported hesitation; it does not close the global strict-jitter or fresh-patch
+burst limits above. The 68000 sequencing workaround was rejected for its game
+update cost; the integrated cartridge uses the pure Z80 adapter.

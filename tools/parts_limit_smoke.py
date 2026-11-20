@@ -1,5 +1,5 @@
 """Check the assembled driver at both ends of its sixteen-voice state page."""
-import argparse, ctypes as C, json, struct
+import argparse, ctypes as C, json, struct, re
 from pathlib import Path
 from unittest.mock import patch
 from calliope.compiler import compile_bank
@@ -9,7 +9,7 @@ from libretro_host import Host
 ROOT=Path(__file__).resolve().parents[1]
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--pal',action='store_true');args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--pal',action='store_true');parser.add_argument('--driver',type=Path);args=parser.parse_args()
     region='pal' if args.pal else 'ntsc'
     out=ROOT/'out'/('parts-limit-'+region);out.mkdir(exist_ok=True)
     source=ROOT/'examples/fm_ring.fur';module=parse(source);song=module.subsongs[0]
@@ -25,6 +25,11 @@ def main():
         'initial_arrangement':'last'}]}))
     with patch('calliope.compiler.parse',return_value=module):data,_,_=compile_bank(manifest,region)
     raw=bytearray((ROOT/'audition/out/rom.bin').read_bytes());base=raw.index(b'BGM1');raw[base:base+len(data)]=data
+    if args.driver:
+        symbols=(ROOT/'audition/out/symbol.txt').read_text()
+        address=int(re.search(r'^([0-9a-fA-F]+)\s+\w\s+clp_driver$',symbols,re.M)[1],16)
+        image=args.driver.read_bytes();assert len(image)==8192
+        raw[address:address+8192]=image
     rom=out/'limit.bin';rom.write_bytes(raw)
     host=Host(ROOT/'out/trace-core/build/calliope_trace.dll',rom,out,{b'genesis_plus_gx_region_detect':region.encode()})
     host.core.retro_set_controller_port_device(0,513)
@@ -34,7 +39,7 @@ def main():
         if reg!=0x2a:registers[reg]=value
     callback=C.CFUNCTYPE(None,C.c_uint,C.c_uint,C.c_uint,C.c_uint)(record)
     host.core.clp_chip_trace_set.argtypes=[type(callback)];host.core.clp_chip_trace_set(callback)
-    needle=(ROOT/'out/driver.bin').read_bytes()[0x38:0x50]
+    needle=(args.driver or ROOT/'out/driver.bin').read_bytes()[0x38:0x50]
     def ram():return bytes(host.core.clp_zram()[:8192])
     def command(mask):
         state=bytearray(host.save());o=state.find(needle)-0x38;assert o>=0

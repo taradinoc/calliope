@@ -7,7 +7,7 @@ from .furnace import FormatError
 class Player:
     def __init__(self, data):
         self.data = data
-        if len(data) < 32 or data[:6] != b"BGM1\14\0":
+        if len(data) < 32 or (data[:4] != b"BGM1" or data[4] not in (12, 13) or data[5]):
             raise FormatError("unsupported bank")
         self.voices = [{"note": None, "patch": None} for _ in range(5)]
         self.parts = []
@@ -184,6 +184,27 @@ class Player:
     def decode(self):
         for _ in range(1024):
             op = self.read()
+            if self.data[4] >= 13:
+                if op == 0x3A:
+                    if self.current_part is None or self.parts[self.current_part]["slot"] >= 5:
+                        raise FormatError("prepatch without an FM part")
+                    self.read()  # Physical preparation has no logical musical event.
+                    continue
+                if op == 0x3B:
+                    op = 0x10
+                if 0x50 <= op <= 0x53:
+                    if self.current_part is None:
+                        raise FormatError("single TL without a part")
+                    part = self.parts[self.current_part]
+                    if part["slot"] >= 5 or "level" not in part:
+                        raise FormatError("single TL without initialized FM levels")
+                    level = bytearray(part["level"])
+                    level[op - 0x50] = self.read()
+                    part["level"] = bytes(level)
+                    if self.audible():
+                        self.voices[part["slot"]]["level"] = bytes(level)
+                        self.trace.append((self.tick, 0x37, part["slot"], bytes(level)))
+                    continue
             if 0x80 <= op < 0xFD:
                 self.wait = op - 0x7F
                 return

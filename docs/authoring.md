@@ -1,4 +1,4 @@
-# Authoring and BGM1 revision 12
+# Authoring and BGM1 revisions 12/13
 
 This describes implemented behavior, not the entire accepted feature list. Unsupported used effects fail conversion. The strict DAC clock gate remains open.
 
@@ -350,3 +350,14 @@ The converter expands these to existing PSG commands, without a Z80 macro VM.
 Any tone2-derived passage reserves tone2 for the entire song; assigning a
 separate music voice to tone2 is rejected. Tone/FM fixed arpeggio support is
 unchanged.
+
+
+## Scheduled pure-Z80 banks
+
+A top-level `"z80_schedule": true` enables revision13 with timer1016. It moves
+physical patch preparation into established maximum-TL gaps while retaining
+logical event times, full instrument bytes and note-time levels/pan. The default
+and hybrid/timer1020 banks remain revision12. Use a matching current pure driver
+and adapter; older editor player templates intentionally reject revision13.
+See [the clock, queue and preservation contract](z80-scheduling.md) for opcode,
+capacity, control-change and evidence limits. No authoring changes are required.

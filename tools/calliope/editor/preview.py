@@ -20,12 +20,14 @@ def make_rom(bank, assets, region, mode):
         meta["protocol"] != 1
         or meta["mode"] != mode
         or meta["region"] != region
-        or meta["bank_revision"] != 12
+        or meta["bank_revision"] not in (12, 13)
     ):
         raise ValueError("Unsupported player template identity")
     if (
         len(bank) < 32
-        or bank[:6] != b"BGM1\x0c\x00"
+        or bank[:4] != b"BGM1"
+        or bank[4] not in ((12, 13) if mode == "z80" and meta["bank_revision"] >= 13 else (12,))
+        or bank[5]
         or int.from_bytes(bank[19:21], "little") != meta["pcm_timer"]
         or bank[21] != int(region == "pal")
     ):

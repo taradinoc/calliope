@@ -60,7 +60,7 @@ bool clp_init(const u8 *bank, u32 length)
     u32 address = (u32)bank;
     u16 frames;
     if ((address & 32767) || length < 32 || address + length > 0x400000 ||
-        bank[0] != 'B' || bank[1] != 'G' || bank[2] != 'M' || bank[3] != '1' || bank[4] != 12 || bank[5] != 0 || (le16(bank + 19) && (le16(bank + 19) != 1016 || bank[21] != (SYS_isPAL() ? 1 : 0))))
+        bank[0] != 'B' || bank[1] != 'G' || bank[2] != 'M' || bank[3] != '1' || (bank[4] != 12 && bank[4] != 13) || bank[5] != 0 || (le16(bank + 19) && (le16(bank + 19) != 1016 || bank[21] != (SYS_isPAL() ? 1 : 0))))
         return FALSE;
     if (!effectIndexValid(bank, length))
         return FALSE;

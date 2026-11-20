@@ -58,8 +58,10 @@ def finalize(rom, symbols, config, symbol):
     data = bytearray(path.read_bytes())
     if address % 32768 or address + 32 > len(data) or len(data) > 0x400000:
         raise ValueError("Bank alignment or cartridge ROM bounds invalid")
-    if data[address : address + 6] != b"BGM1\x0c\x00":
+    if data[address : address + 4] != b"BGM1" or data[address + 4] not in (12, 13) or data[address + 5]:
         raise ValueError("Linked bank revision mismatch")
+    if data[address + 4] == 13 and settings.get("hybrid"):
+        raise ValueError("Scheduled bank requires the pure Z80 driver")
     if (
         int.from_bytes(data[address + 19 : address + 21], "little")
         != settings["pcm_timer"]
