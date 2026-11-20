@@ -90,6 +90,28 @@ extern unsigned char work_ram[65536];
 static unsigned long long clp_audio_cycles[0x200000];
 static unsigned int clp_audio_flag;
 static int clp_audio_enabled;
+/* Optional complete-update observer; no cartridge instructions or RAM writes. */
+typedef void (*clp_update_fn)(unsigned int,unsigned int);
+static clp_update_fn clp_update_callback;
+static unsigned int clp_update_pc,clp_update_pc2,clp_update_tick,clp_update_first,clp_update_last;
+static int clp_update_active;
+static unsigned long long clp_update_cycles[0x200000];
+__declspec(dllexport) const unsigned long long* clp_update_profile_cycles(void) { return clp_update_cycles; }
+__declspec(dllexport) void clp_update_profile_set(unsigned int pc,unsigned int pc2,unsigned int tick,unsigned int first,unsigned int last,clp_update_fn fn) {
+  clp_update_pc=pc;clp_update_pc2=pc2;clp_update_tick=tick;clp_update_first=first;clp_update_last=last;
+  clp_update_callback=fn;clp_update_active=0;
+  memset(clp_update_cycles,0,sizeof(clp_update_cycles));
+}
+static void clp_update_boundary(unsigned int pc) {
+  unsigned int i,tick=0;
+  if (!clp_update_callback || (pc!=clp_update_pc && pc!=clp_update_pc2)) return;
+  for(i=0;i<4;++i)tick=(tick<<8)|work_ram[(clp_update_tick+i)^1];
+  if(tick>=clp_update_first-1 && tick<=clp_update_last) {
+    clp_update_callback(tick,m68k.cycles);
+    memset(clp_update_cycles,0,sizeof(clp_update_cycles));
+    clp_update_active=tick<clp_update_last;
+  }
+}
 __declspec(dllexport) void clp_audio_profile_reset(unsigned int flag) {
   memset(clp_audio_cycles,0,sizeof(clp_audio_cycles));
   clp_audio_enabled=flag<65535;clp_audio_flag=flag&65535;
@@ -99,10 +121,10 @@ __declspec(dllexport) const unsigned long long* clp_audio_profile_cycles(void) {
 """)
     anchor='  while (m68k.cycles < cycles)\n  {'
     assert anchor in main_cpu
-    main_cpu=main_cpu.replace(anchor,anchor+'\n    unsigned int clp_start=m68k.cycles, clp_pc=REG_PC;\n    unsigned int clp_audio_active=clp_audio_enabled && (work_ram[clp_audio_flag]|work_ram[clp_audio_flag+1]);')
+    main_cpu=main_cpu.replace(anchor,anchor+'\n    unsigned int clp_start=m68k.cycles, clp_pc=REG_PC;\n    unsigned int clp_audio_active=clp_audio_enabled && (work_ram[clp_audio_flag]|work_ram[clp_audio_flag+1]);\n    clp_update_boundary(clp_pc);')
     anchor='    m68ki_instruction_jump_table[REG_IR]();\n    USE_CYCLES(CYC_INSTRUCTION[REG_IR]);'
     assert main_cpu.count(anchor)==1
-    main_cpu=main_cpu.replace(anchor,anchor+'\n    if (clp_audio_active && clp_pc<0x400000) clp_audio_cycles[clp_pc>>1] += m68k.cycles-clp_start;')
+    main_cpu=main_cpu.replace(anchor,anchor+'\n    if (clp_audio_active && clp_pc<0x400000) clp_audio_cycles[clp_pc>>1] += m68k.cycles-clp_start;\n    if (clp_update_active && clp_pc<0x400000) clp_update_cycles[clp_pc>>1] += m68k.cycles-clp_start;')
     (out/'m68kcpu.c').write_text(main_cpu,newline='\r\n')
     # Reuse the public pinned-core build, replacing only copied instrumented files.
     cmake=(ROOT/'editor/core/CMakeLists.txt').read_text()
